@@ -74,14 +74,12 @@ class TimeSheet:
 
         self.tree.pack(fill=BOTH, expand=True)
 
-        # Tag styling
         self.tree.tag_configure("section", font=("Helvetica", 10, "bold"))
         self.tree.tag_configure("hover", background="#e0f7fa")
         self.tree.tag_configure("total", font=("Helvetica", 10, "bold"), background="#e8f5e9")
 
         self.tree.bind("<Button-1>", self.on_click)
         self.tree.bind("<Motion>", self.on_hover)
-        self.root.bind("<Visibility>", lambda e: self.reload())
 
         self.reload()
 
@@ -103,7 +101,7 @@ class TimeSheet:
             self.tree.insert("", "end", values=("", "--- Service ---", "", "", "", "", ""), tags=("section",))
             for row in service_data:
                 row_id = self.tree.insert("", "end", values=(row[0], row[1], row[2], "🕒", "", "", ""), tags=("editable",))
-                self.punch_data[row_id] = {"in": "", "out": "", "total": ""}
+                self.punch_data[row_id] = {"in": "", "out": "", "total": 0.0}
             self.service_total_row = self.tree.insert("", "end", values=("", "Total Service", "", "", "", "", "0.00"), tags=("total",))
 
         bussboy_data = self.load_data_file(BUSSBOY_FILE)
@@ -111,7 +109,7 @@ class TimeSheet:
             self.tree.insert("", "end", values=("", "--- Bussboy ---", "", "", "", "", ""), tags=("section",))
             for row in bussboy_data:
                 row_id = self.tree.insert("", "end", values=(row[0], row[1], row[2], "🕒", "", "", ""), tags=("editable",))
-                self.punch_data[row_id] = {"in": "", "out": "", "total": ""}
+                self.punch_data[row_id] = {"in": "", "out": "", "total": 0.0}
             self.bussboy_total_row = self.tree.insert("", "end", values=("", "Total Bussboy", "", "", "", "", "0.00"), tags=("total",))
 
         self.update_totals()
@@ -128,10 +126,13 @@ class TimeSheet:
                 continue
             if "total" in tags:
                 continue
+            if "editable" not in tags:
+                continue
 
+            total = self.punch_data.get(item, {}).get("total", 0)
             try:
-                total = float(self.tree.item(item, "values")[6])
-            except (ValueError, IndexError):
+                total = float(total)
+            except ValueError:
                 total = 0.0
 
             if in_bussboy:
@@ -146,18 +147,22 @@ class TimeSheet:
 
     def export_filled_rows(self):
         export_data = []
-        for item in self.tree.get_children():
-            tags = self.tree.item(item, "tags")
-            if "section" in tags or "total" in tags:
-                continue
-            values = self.tree.item(item, "values")
-            number, name, points, _, punch_in, punch_out, total = values
-            if total.strip():
+        for row_id in self.punch_data:
+            values = self.tree.item(row_id, "values")
+            punch = self.punch_data[row_id]
+            try:
+                total = float(punch.get("total", 0))
+            except ValueError:
+                total = 0
+
+            if total > 0:
                 export_data.append({
-                    "number": number,
-                    "name": name,
-                    "points": points,
-                    "hours": total
+                    "number": values[0],
+                    "name": values[1],
+                    "points": values[2],
+                    "in": punch.get("in", ""),
+                    "out": punch.get("out", ""),
+                    "hours": f"{total:.2f}"
                 })
 
         with open(EXPORT_FILE, "w", encoding="utf-8") as f:
@@ -186,13 +191,17 @@ class TimeSheet:
         current = list(self.tree.item(row_id, "values"))
         current[4] = punch_in
         current[5] = punch_out
-        current[6] = f"{total:.2f}" if isinstance(total, (float, int)) else total
+        current[6] = f"{float(total):.2f}" if isinstance(total, (float, int)) else total
         self.tree.item(row_id, values=current)
+        self.punch_data[row_id] = {
+            "in": punch_in,
+            "out": punch_out,
+            "total": float(total)
+        }
         self.update_totals()
 
     def on_hover(self, event):
         row_id = self.tree.identify_row(event.y)
-
         if row_id == self.hovered_row or not row_id:
             return
         if "editable" not in self.tree.item(row_id, "tags"):
@@ -221,7 +230,6 @@ class TimeSheet:
             except ValueError:
                 return val.lower()
 
-        # Split rows into sections
         sections = []
         current_section = []
 
@@ -240,7 +248,6 @@ class TimeSheet:
         if current_section:
             sections.append(current_section)
 
-        # Sort editable rows within each section
         for section in sections:
             editable_rows = [i for i in section if "editable" in tree.item(i, "tags")]
             sorted_items = sorted(editable_rows, key=get_val, reverse=direction)
@@ -249,7 +256,6 @@ class TimeSheet:
                 tree.move(item, '', tree.index(insert_after) + 1)
                 insert_after = item
 
-        # Update headings with arrow indicators
         for c, base_label in self.base_labels.items():
             if c == col:
                 arrow = "▲" if not direction else "▼"
@@ -258,10 +264,3 @@ class TimeSheet:
                 tree.heading(c, text=base_label, command=lambda _col=c: self.sort_by_column(tree, _col))
             else:
                 tree.heading(c, text=base_label)
-
-# Optional standalone usage
-if __name__ == "__main__":
-    app_root = ttk.Window(themename="flatly", title="Time Sheet")
-    create_menu_bar(app_root)
-    TimeSheet(app_root)
-    app_root.mainloop()

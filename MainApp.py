@@ -22,8 +22,6 @@ class TipSplitApp:
         self.create_timesheet_tab()
         self.create_daysheet_tab()  # Now placed after Time Sheet
 
-        self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed)
-
     def create_master_tab(self):
         self.master_frame = ttk.Frame(self.notebook)
         self.notebook.add(self.master_frame, text="Master Sheet")
@@ -36,7 +34,6 @@ class TipSplitApp:
     def create_timesheet_tab(self):
         self.timesheet_frame = ttk.Frame(self.notebook)
         self.notebook.add(self.timesheet_frame, text="Time Sheet")
-        # Temporarily create an empty DaySheet reference, filled after creation
         self.timesheet_tab = None  # Placeholder
 
     def create_daysheet_tab(self):
@@ -53,13 +50,8 @@ class TipSplitApp:
 
     def reload_timesheet_data(self):
         if hasattr(self, "timesheet_tab"):
-            self.timesheet_tab.reload()
+            self.timesheet_tab.reload()  # ✅ Called ONLY when Master saves
 
-    def on_tab_changed(self, event):
-        selected_tab = event.widget.select()
-        tab_text = event.widget.tab(selected_tab, "text")
-        if tab_text == "Time Sheet" and hasattr(self, "timesheet_tab"):
-            self.timesheet_tab.reload()
 
 if __name__ == "__main__":
     app_root = ttk.Window(themename="flatly")
