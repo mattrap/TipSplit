@@ -92,6 +92,7 @@ class TimeSheet:
         self.service_total_row = None
         self.bussboy_total_row = None
         self.punch_data.clear()
+        self.hovered_row = None  # ✅ Reset hovered_row on reload
 
         service_data = self.load_data_file(SERVICE_FILE)
         if service_data:
@@ -158,7 +159,6 @@ class TimeSheet:
         with open(EXPORT_FILE, "w", encoding="utf-8") as f:
             json.dump(export_data, f, ensure_ascii=False, indent=2)
 
-        # Open DaySheet with loaded data
         if self.day_sheet:
             selected_date = self.date_picker.entry.get()
             self.day_sheet.load_data(export_data, selected_date=selected_date)
@@ -188,21 +188,26 @@ class TimeSheet:
 
     def on_hover(self, event):
         row_id = self.tree.identify_row(event.y)
-        if not row_id or row_id in (self.service_total_row, self.bussboy_total_row):
+
+        # Skip if same as previous or not editable
+        if row_id == self.hovered_row or not row_id:
+            return
+        if "editable" not in self.tree.item(row_id, "tags"):
             return
 
-        if row_id != self.hovered_row:
-            if self.hovered_row:
-                current_tags = list(self.tree.item(self.hovered_row, "tags"))
-                if "hover" in current_tags:
-                    current_tags.remove("hover")
-                    self.tree.item(self.hovered_row, tags=tuple(current_tags))
+        # Remove hover from previous
+        if self.hovered_row and self.tree.exists(self.hovered_row):
+            prev_tags = [tag for tag in self.tree.item(self.hovered_row, "tags") if tag != "hover"]
+            self.tree.item(self.hovered_row, tags=tuple(prev_tags))
 
-            current_tags = list(self.tree.item(row_id, "tags"))
-            if "hover" not in current_tags:
-                current_tags.append("hover")
-                self.tree.item(row_id, tags=tuple(current_tags))
-            self.hovered_row = row_id
+        # Add hover to new row
+        if self.tree.exists(row_id):
+            tags = list(self.tree.item(row_id, "tags"))
+            if "hover" not in tags:
+                tags.append("hover")
+                self.tree.item(row_id, tags=tuple(tags))
+
+        self.hovered_row = row_id
 
 # Optional standalone usage
 if __name__ == "__main__":
