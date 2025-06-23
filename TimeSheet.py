@@ -19,6 +19,7 @@ class TimeSheet:
         self.bussboy_total_row = None
         self.punch_data = {}
         self.hovered_row = None
+        self.sort_directions = {}
 
         content = ttk.Frame(self.root, padding=10)
         content.pack(fill=BOTH, expand=True)
@@ -47,7 +48,7 @@ class TimeSheet:
             bootstyle="primary"
         )
 
-        headings = {
+        self.base_labels = {
             "number": "Numéro",
             "name": "Nom",
             "points": "Points",
@@ -57,8 +58,11 @@ class TimeSheet:
             "total": "Total"
         }
 
-        for col, label in headings.items():
-            self.tree.heading(col, text=label)
+        for col, label in self.base_labels.items():
+            if col in ["number", "name", "points"]:
+                self.tree.heading(col, text=label, command=lambda _col=col: self.sort_by_column(self.tree, _col))
+            else:
+                self.tree.heading(col, text=label)
 
         self.tree.column("number", width=100, anchor=CENTER)
         self.tree.column("name", width=200, anchor=W)
@@ -92,7 +96,7 @@ class TimeSheet:
         self.service_total_row = None
         self.bussboy_total_row = None
         self.punch_data.clear()
-        self.hovered_row = None  # ✅ Reset hovered_row on reload
+        self.hovered_row = None
 
         service_data = self.load_data_file(SERVICE_FILE)
         if service_data:
@@ -189,18 +193,15 @@ class TimeSheet:
     def on_hover(self, event):
         row_id = self.tree.identify_row(event.y)
 
-        # Skip if same as previous or not editable
         if row_id == self.hovered_row or not row_id:
             return
         if "editable" not in self.tree.item(row_id, "tags"):
             return
 
-        # Remove hover from previous
         if self.hovered_row and self.tree.exists(self.hovered_row):
             prev_tags = [tag for tag in self.tree.item(self.hovered_row, "tags") if tag != "hover"]
             self.tree.item(self.hovered_row, tags=tuple(prev_tags))
 
-        # Add hover to new row
         if self.tree.exists(row_id):
             tags = list(self.tree.item(row_id, "tags"))
             if "hover" not in tags:
@@ -208,6 +209,55 @@ class TimeSheet:
                 self.tree.item(row_id, tags=tuple(tags))
 
         self.hovered_row = row_id
+
+    def sort_by_column(self, tree, col):
+        direction = self.sort_directions.get(col, False)
+        self.sort_directions[col] = not direction
+
+        def get_val(item):
+            val = tree.set(item, col)
+            try:
+                return float(val)
+            except ValueError:
+                return val.lower()
+
+        # Split rows into sections
+        sections = []
+        current_section = []
+
+        for item in tree.get_children():
+            tags = tree.item(item, "tags")
+            if "section" in tags:
+                if current_section:
+                    sections.append(current_section)
+                current_section = [item]
+            elif "total" in tags:
+                current_section.append(item)
+                sections.append(current_section)
+                current_section = []
+            else:
+                current_section.append(item)
+        if current_section:
+            sections.append(current_section)
+
+        # Sort editable rows within each section
+        for section in sections:
+            editable_rows = [i for i in section if "editable" in tree.item(i, "tags")]
+            sorted_items = sorted(editable_rows, key=get_val, reverse=direction)
+            insert_after = section[0]
+            for item in sorted_items:
+                tree.move(item, '', tree.index(insert_after) + 1)
+                insert_after = item
+
+        # Update headings with arrow indicators
+        for c, base_label in self.base_labels.items():
+            if c == col:
+                arrow = "▲" if not direction else "▼"
+                tree.heading(c, text=f"{base_label} {arrow}", command=lambda _col=c: self.sort_by_column(tree, _col))
+            elif c in ["number", "name", "points"]:
+                tree.heading(c, text=base_label, command=lambda _col=c: self.sort_by_column(tree, _col))
+            else:
+                tree.heading(c, text=base_label)
 
 # Optional standalone usage
 if __name__ == "__main__":
