@@ -1,5 +1,6 @@
 [
   {
+    "section": "Service",
     "number": "12",
     "name": "Alexandre Vandal",
     "points": "10",
@@ -8,19 +9,12 @@
     "hours": "6.00"
   },
   {
-    "number": "3",
-    "name": "Mathias Tessier",
-    "points": "9",
-    "in": "09:30",
-    "out": "21:30",
-    "hours": "12.00"
-  },
-  {
+    "section": "Bussboy",
     "number": "1276",
     "name": "Thomas Bousquet",
     "points": "4",
-    "in": "09:30",
-    "out": "20:30",
-    "hours": "11.00"
+    "in": "08:30",
+    "out": "16:30",
+    "hours": "8.00"
   }
 ]

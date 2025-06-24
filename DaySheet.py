@@ -35,6 +35,9 @@ class DaySheet:
 
         self.tree.pack(fill=BOTH, expand=True)
 
+        # Bold for section headers like "Service" and "Bussboy"
+        self.tree.tag_configure("section", font=("Helvetica", 10, "bold"))
+
     def load_data(self, data, selected_date=None):
         self.tree.delete(*self.tree.get_children())
 
@@ -43,7 +46,13 @@ class DaySheet:
         else:
             self.title_label.config(text="Feuille du: aucune date")
 
+        last_section = None
         for entry in data:
+            section = entry.get("section", "")
+            if section != last_section:
+                self.tree.insert("", "end", values=("", f"--- {section} ---", "", "", "", ""), tags=("section",))
+                last_section = section
+
             self.tree.insert("", "end", values=(
                 entry.get("number", ""),
                 entry.get("name", ""),

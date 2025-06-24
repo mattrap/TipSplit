@@ -147,9 +147,21 @@ class TimeSheet:
 
     def export_filled_rows(self):
         export_data = []
-        for row_id in self.punch_data:
-            values = self.tree.item(row_id, "values")
-            punch = self.punch_data[row_id]
+        current_section = None
+
+        for item in self.tree.get_children():
+            tags = self.tree.item(item, "tags")
+            values = self.tree.item(item, "values")
+
+            if "section" in tags:
+                section_label = values[1].strip("- ").strip()
+                current_section = section_label
+                continue
+
+            if "editable" not in tags:
+                continue
+
+            punch = self.punch_data.get(item, {})
             try:
                 total = float(punch.get("total", 0))
             except ValueError:
@@ -157,6 +169,7 @@ class TimeSheet:
 
             if total > 0:
                 export_data.append({
+                    "section": current_section,
                     "number": values[0],
                     "name": values[1],
                     "points": values[2],
@@ -191,13 +204,21 @@ class TimeSheet:
         current = list(self.tree.item(row_id, "values"))
         current[4] = punch_in
         current[5] = punch_out
-        current[6] = f"{float(total):.2f}" if isinstance(total, (float, int)) else total
+
+        try:
+            total_float = float(total)
+            current[6] = f"{total_float:.2f}"
+        except (ValueError, TypeError):
+            total_float = 0.0
+            current[6] = ""
+
         self.tree.item(row_id, values=current)
         self.punch_data[row_id] = {
             "in": punch_in,
             "out": punch_out,
-            "total": float(total)
+            "total": total_float
         }
+
         self.update_totals()
 
     def on_hover(self, event):
@@ -234,7 +255,7 @@ class TimeSheet:
         current_section = []
 
         for item in tree.get_children():
-            tags = tree.item(item, "tags")
+            tags = self.tree.item(item, "tags")
             if "section" in tags:
                 if current_section:
                     sections.append(current_section)
