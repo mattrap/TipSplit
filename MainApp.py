@@ -91,7 +91,9 @@ class TipSplitApp:
                     "points": values[2],
                     "hours": values[5]
                 })
-            self.distribution_tab.load_day_sheet_data(data)
+
+            selected_date = self.daysheet_tab.title_label.cget("text").replace("Feuille du ", "")
+            self.distribution_tab.load_day_sheet_data(data, selected_date=selected_date)
 
     def reload_timesheet_data(self):
         if hasattr(self, "timesheet_tab"):
