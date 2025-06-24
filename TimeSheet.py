@@ -11,9 +11,10 @@ BUSSBOY_FILE = "bussboy_employees.json"
 EXPORT_FILE = "DaySheet.json"
 
 class TimeSheet:
-    def __init__(self, root, shared_data=None, day_sheet=None):
+    def __init__(self, root, shared_data=None, day_sheet=None, reload_distribution_data=None):
         self.shared_data = shared_data or {}
         self.day_sheet = day_sheet
+        self.reload_distribution_data = reload_distribution_data
         self.root = root
         self.service_total_row = None
         self.bussboy_total_row = None
@@ -184,6 +185,9 @@ class TimeSheet:
         if self.day_sheet:
             selected_date = self.date_picker.entry.get()
             self.day_sheet.load_data(export_data, selected_date=selected_date)
+
+        if self.reload_distribution_data:
+            self.reload_distribution_data()
 
     def on_click(self, event):
         region = self.tree.identify("region", event.x, event.y)
