@@ -101,5 +101,6 @@ class TipSplitApp:
 
 if __name__ == "__main__":
     app_root = ttk.Window(themename="flatly")
+    app_root.state('zoomed')
     app = TipSplitApp(app_root)
     app_root.mainloop()

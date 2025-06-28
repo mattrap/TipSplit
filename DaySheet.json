@@ -7,59 +7,5 @@
     "in": "10:30",
     "out": "15:30",
     "hours": "5.00"
-  },
-  {
-    "section": "Bussboy",
-    "number": "6",
-    "name": "Sandrine Campeau",
-    "points": "4",
-    "in": "15:30",
-    "out": "21:30",
-    "hours": "6.00"
-  },
-  {
-    "section": "Bussboy",
-    "number": "1658",
-    "name": "Camille Dussault",
-    "points": "4",
-    "in": "15:30",
-    "out": "21:30",
-    "hours": "6.00"
-  },
-  {
-    "section": "Bussboy",
-    "number": "1665",
-    "name": "Vincent Fradet",
-    "points": "3",
-    "in": "14:30",
-    "out": "21:30",
-    "hours": "7.00"
-  },
-  {
-    "section": "Bussboy",
-    "number": "1749",
-    "name": "Charles Desrosiers",
-    "points": "3",
-    "in": "22:30",
-    "out": "16:30",
-    "hours": "18.00"
-  },
-  {
-    "section": "Bussboy",
-    "number": "1719",
-    "name": "Guillaume Sinclair",
-    "points": "3",
-    "in": "09:30",
-    "out": "21:30",
-    "hours": "12.00"
-  },
-  {
-    "section": "Bussboy",
-    "number": "1718",
-    "name": "Joshua Kanyinda",
-    "points": "3",
-    "in": "21:30",
-    "out": "15:30",
-    "hours": "18.00"
   }
 ]
