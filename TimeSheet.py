@@ -11,9 +11,8 @@ BUSSBOY_FILE = "bussboy_employees.json"
 EXPORT_FILE = "DaySheet.json"
 
 class TimeSheet:
-    def __init__(self, root, shared_data=None, day_sheet=None, reload_distribution_data=None):
+    def __init__(self, root, shared_data=None, reload_distribution_data=None):
         self.shared_data = shared_data or {}
-        self.day_sheet = day_sheet
         self.reload_distribution_data = reload_distribution_data
         self.root = root
         self.service_total_row = None
@@ -180,11 +179,10 @@ class TimeSheet:
                 })
 
         with open(EXPORT_FILE, "w", encoding="utf-8") as f:
-            json.dump(export_data, f, ensure_ascii=False, indent=2)
-
-        if self.day_sheet:
-            selected_date = self.date_picker.entry.get()
-            self.day_sheet.load_data(export_data, selected_date=selected_date)
+            json.dump({
+                "date": self.date_picker.entry.get(),
+                "entries": export_data
+            }, f, ensure_ascii=False, indent=2)
 
         if self.reload_distribution_data:
             self.reload_distribution_data()

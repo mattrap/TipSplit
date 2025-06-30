@@ -1,12 +1,13 @@
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 from datetime import datetime
+import json
+import os
 
 class DistributionTab:
-    def __init__(self, root, shared_data=None, day_sheet_data=None):
+    def __init__(self, root, shared_data=None):
         self.root = root
         self.shared_data = shared_data or {}
-        self.day_sheet_data = day_sheet_data or []
         self.selected_date_str = ""
 
         container = ttk.Frame(root, padding=10)
@@ -79,7 +80,41 @@ class DistributionTab:
         self.tree.pack(fill=BOTH, expand=True)
         self.tree.tag_configure("section", font=("Helvetica", 10, "bold"))
 
-        self.load_day_sheet_data(self.day_sheet_data)
+        # Load data from day_data.json
+        day_data, selected_date = self.load_day_data()
+        self.load_day_sheet_data(day_data, selected_date)
+
+    def load_day_data(self):
+        try:
+            with open("DaySheet.json", "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            return [], "aucune date"
+
+        entries = data.get("entries", [])
+        selected_date = data.get("date", "aucune date")
+
+        organized_data = []
+        last_section = None
+        for entry in entries:
+            section = entry.get("section", "")
+            if section != last_section:
+                organized_data.append({
+                    "section": section,
+                    "number": "",
+                    "name": f"--- {section} ---",
+                    "points": "",
+                    "in": "",
+                    "out": "",
+                    "hours": "",
+                    "is_section": True
+                })
+                last_section = section
+
+            entry["is_section"] = False
+            organized_data.append(entry)
+
+        return organized_data, selected_date
 
     def set_shift(self, value):
         self.shift_var.set(value)
@@ -104,24 +139,20 @@ class DistributionTab:
         else:
             self.selected_date_str = "??-??-????"
 
-        # Initial label without shift
         self.date_label.config(text=f"Feuille du: {self.selected_date_str}")
 
-        last_section = None
         for entry in data:
-            section = entry.get("section", "")
-            if section != last_section:
-                self.tree.insert("", "end", values=("", f"--- {section} ---", "", "", "", ""), tags=("section",))
-                last_section = section
-
-            self.tree.insert("", "end", values=(
-                entry.get("number", ""),
-                entry.get("name", ""),
-                entry.get("points", ""),
-                entry.get("hours", ""),
-                "",  # Sur paye
-                ""   # Cash
-            ))
+            if entry.get("is_section"):
+                self.tree.insert("", "end", values=("", entry["name"], "", "", "", ""), tags=("section",))
+            else:
+                self.tree.insert("", "end", values=(
+                    entry.get("number", ""),
+                    entry.get("name", ""),
+                    entry.get("points", ""),
+                    entry.get("hours", ""),
+                    "",  # Sur paye
+                    ""   # Cash
+                ))
 
         self.process()
 

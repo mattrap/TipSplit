@@ -1,11 +1,23 @@
-[
-  {
-    "section": "Bussboy",
-    "number": "1276",
-    "name": "Thomas Bousquet",
-    "points": "4",
-    "in": "10:30",
-    "out": "15:30",
-    "hours": "5.00"
-  }
-]
+{
+  "date": "27-juin-2025-vendredi",
+  "entries": [
+    {
+      "section": "Service",
+      "number": "12",
+      "name": "Alexandre Vandal",
+      "points": "10",
+      "in": "10:30",
+      "out": "15:30",
+      "hours": "5.00"
+    },
+    {
+      "section": "Bussboy",
+      "number": "1276",
+      "name": "Thomas Bousquet",
+      "points": "4",
+      "in": "10:30",
+      "out": "16:30",
+      "hours": "6.00"
+    }
+  ]
+}
