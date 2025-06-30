@@ -3,6 +3,7 @@ from ttkbootstrap.constants import *
 from ttkbootstrap.widgets import DateEntry
 from MenuBar import create_menu_bar
 from PunchClock import PunchClockPopup
+from datetime import datetime
 import json
 import os
 
@@ -39,6 +40,7 @@ class TimeSheet:
             command=self.export_filled_rows
         )
         confirm_btn.pack(side=RIGHT)
+        self.date_picker.entry.delete(0, END)
 
         # Treeview
         self.tree = ttk.Treeview(
@@ -148,6 +150,16 @@ class TimeSheet:
     def export_filled_rows(self):
         export_data = []
         current_section = None
+        date_str = self.date_picker.entry.get().strip()
+
+        if not date_str:
+            self.flash_date_field()
+            return
+        try:
+            datetime.strptime(date_str, self.date_picker._dateformat)
+        except ValueError:
+            self.flash_date_field()
+            return
 
         for item in self.tree.get_children():
             tags = self.tree.item(item, "tags")
@@ -287,3 +299,19 @@ class TimeSheet:
                 tree.heading(c, text=base_label, command=lambda _col=c: self.sort_by_column(tree, _col))
             else:
                 tree.heading(c, text=base_label)
+
+    def flash_date_field(self):
+        entry = self.date_picker.entry
+        original_style = entry.cget("style")
+
+        def flash(count=0):
+            if count >= 8:
+                entry.configure(style=original_style)
+                return
+            if count % 2 == 0:
+                entry.configure(style="danger.TEntry")
+            else:
+                entry.configure(style="TEntry")
+            entry.after(150, lambda: flash(count + 1))
+
+        flash()

@@ -1,31 +1,13 @@
 {
-  "date": "29-juin-2025-dimanche",
+  "date": "25-juin-2025-mercredi",
   "entries": [
-    {
-      "section": "Bussboy",
-      "number": "1276",
-      "name": "Thomas Bousquet",
-      "points": "4",
-      "in": "09:30",
-      "out": "15:30",
-      "hours": "6.00"
-    },
     {
       "section": "Bussboy",
       "number": "1526",
       "name": "Maxence Beaudry",
       "points": "4",
       "in": "16:30",
-      "out": "22:30",
-      "hours": "6.00"
-    },
-    {
-      "section": "Bussboy",
-      "number": "1749",
-      "name": "Charles Desrosiers",
-      "points": "3",
-      "in": "10:30",
-      "out": "15:30",
+      "out": "21:30",
       "hours": "5.00"
     }
   ]
