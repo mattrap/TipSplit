@@ -1,21 +1,18 @@
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
-import subprocess
-import sys
 from datetime import datetime
 
-def create_menu_bar(root):
+def create_menu_bar(root, app):
     # Create themed top-level menu bar
     menu_bar = ttk.Frame(root, padding=(10, 5))
-    menu_bar.pack(fill=X, side=TOP)
+    menu_bar.pack(fill=X, side=TOP, before=root.winfo_children()[0])
 
-    # File menu
-    file_button = ttk.Menubutton(menu_bar, text="File")
-    file_menu = ttk.Menu(file_button)
-    file_menu.add_command(label="Master Sheet", command=open_master)
-    file_menu.add_command(label="Time Sheet", command=open_timesheet)
-    file_button["menu"] = file_menu
-    file_button.pack(side=LEFT, padx=5)
+    # Open menu
+    open_button = ttk.Menubutton(menu_bar, text="Open")
+    open_menu = ttk.Menu(open_button)
+    open_menu.add_command(label="Master Sheet", command=app.show_master_tab)
+    open_button["menu"] = open_menu
+    open_button.pack(side=LEFT, padx=5)
 
     # Settings menu
     settings_button = ttk.Menubutton(menu_bar, text="Settings")
@@ -48,9 +45,3 @@ def create_menu_bar(root):
     update_clock()
 
     return clock_label
-
-def open_timesheet():
-    subprocess.Popen([sys.executable, "TimeSheet.py"])
-
-def open_master():
-    subprocess.Popen([sys.executable, "Master.py"])

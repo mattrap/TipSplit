@@ -3,7 +3,6 @@ from ttkbootstrap.constants import *
 from MenuBar import create_menu_bar
 from Master import MasterSheet
 from TimeSheet import TimeSheet
-from DaySheet import DaySheet
 from Distribution import DistributionTab
 
 class TipSplitApp:
@@ -14,19 +13,20 @@ class TipSplitApp:
 
         self.shared_data = {}
 
-        create_menu_bar(self.root)
-
         self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(fill=BOTH, expand=True)
 
         self.create_master_tab()
         self.create_timesheet_tab()
-        self.create_daysheet_tab()
         self.create_distribution_tab()
+
+        # Must come after master tab is created so menu can access it
+        create_menu_bar(self.root, self)
 
     def create_master_tab(self):
         self.master_frame = ttk.Frame(self.notebook)
         self.notebook.add(self.master_frame, text="Master Sheet")
+        self.notebook.hide(self.master_frame)  # Hide the tab on startup
         self.master_tab = MasterSheet(
             self.master_frame,
             on_save_callback=self.reload_timesheet_data,
@@ -36,64 +36,31 @@ class TipSplitApp:
     def create_timesheet_tab(self):
         self.timesheet_frame = ttk.Frame(self.notebook)
         self.notebook.add(self.timesheet_frame, text="Time Sheet")
-        self.timesheet_tab = None  # Will be set in create_daysheet_tab
-
-    def create_daysheet_tab(self):
-        self.daysheet_frame = ttk.Frame(self.notebook)
-        self.notebook.add(self.daysheet_frame, text="Day Sheet")
-        self.daysheet_tab = DaySheet(self.daysheet_frame)
 
         self.timesheet_tab = TimeSheet(
             self.timesheet_frame,
             shared_data=self.shared_data,
-            day_sheet=self.daysheet_tab,
-            reload_distribution_data=self.reload_distribution_tab  # Live link
+            reload_distribution_data=self.reload_distribution_tab
         )
 
     def create_distribution_tab(self):
         self.distribution_frame = ttk.Frame(self.notebook)
         self.notebook.add(self.distribution_frame, text="Distribution")
 
-        data = []
-        section = ""
-        for item in self.daysheet_tab.tree.get_children():
-            values = self.daysheet_tab.tree.item(item)["values"]
-            if values[1].startswith("---"):
-                section = values[1].strip("- ").strip()
-                continue
-            data.append({
-                "section": section,
-                "number": values[0],
-                "name": values[1],
-                "points": values[2],
-                "hours": values[5]
-            })
-
         self.distribution_tab = DistributionTab(
             root=self.distribution_frame,
-            shared_data=self.shared_data,
-            day_sheet_data=data
+            shared_data=self.shared_data
         )
 
-    def reload_distribution_tab(self):
-        if hasattr(self, "distribution_tab") and hasattr(self.daysheet_tab, "tree"):
-            data = []
-            section = ""
-            for item in self.daysheet_tab.tree.get_children():
-                values = self.daysheet_tab.tree.item(item)["values"]
-                if values[1].startswith("---"):
-                    section = values[1].strip("- ").strip()
-                    continue
-                data.append({
-                    "section": section,
-                    "number": values[0],
-                    "name": values[1],
-                    "points": values[2],
-                    "hours": values[5]
-                })
+    def show_master_tab(self):
+        if str(self.master_frame) not in self.notebook.tabs():
+            self.notebook.add(self.master_frame, text="Master Sheet")
+        self.notebook.select(self.master_frame)
 
-            selected_date = self.daysheet_tab.title_label.cget("text").replace("Feuille du ", "")
-            self.distribution_tab.load_day_sheet_data(data, selected_date=selected_date)
+    def reload_distribution_tab(self):
+        if hasattr(self, "distribution_tab"):
+            day_data, selected_date = self.distribution_tab.load_day_data()
+            self.distribution_tab.load_day_sheet_data(day_data, selected_date=selected_date)
 
     def reload_timesheet_data(self):
         if hasattr(self, "timesheet_tab"):
