@@ -14,27 +14,23 @@ class DistributionTab:
         # Top container with date label and toggle buttons stacked
         top_frame = ttk.Frame(container)
         top_frame.pack(fill=X)
-
         self.date_label = ttk.Label(top_frame, text="FEUILLE DU:", font=("Helvetica", 14, "bold"))
         self.date_label.pack(anchor=W)
 
         # Toggle buttons
         self.shift_var = ttk.StringVar(value="")
-
         toggle_frame = ttk.Frame(top_frame)
         toggle_frame.pack(anchor=W, pady=5)
-
-        self.matin_button = ttk.Button(
-            toggle_frame, text="Matin", bootstyle="outline-primary", width=10,
-            command=lambda: self.set_shift("Matin")
-        )
-        self.soir_button = ttk.Button(
-            toggle_frame, text="Soir", bootstyle="outline-primary", width=10,
-            command=lambda: self.set_shift("Soir")
-        )
-
+        self.matin_button = ttk.Button(toggle_frame, text="Matin", bootstyle="outline-primary", width=10,
+            command=lambda: self.set_shift("Matin"))
+        self.soir_button = ttk.Button(toggle_frame, text="Soir", bootstyle="outline-primary", width=10,
+            command=lambda: self.set_shift("Soir"))
         self.matin_button.pack(side=LEFT, padx=5)
         self.soir_button.pack(side=LEFT, padx=5)
+
+        # Distribution colors
+        self.sur_paye_color = "#258dba"
+        self.cash_color = "#28a745"
 
         # Input section
         input_frame = ttk.LabelFrame(container, text="Paramètres de distribution", padding=10)
@@ -48,17 +44,20 @@ class DistributionTab:
             entry.grid(row=i, column=1, sticky=W, pady=5)
             self.fields[label] = entry
 
-            if label in {"Ventes Nettes", "Dépot Net"}:
-                entry.bind("<KeyRelease>", lambda e: self.process())
+            entry.bind("<KeyRelease>", lambda e: self.process())
+            entry.bind("<FocusOut>", lambda e: self.process())
 
+        # Summary panels
         self.create_bussboy_summary_panel(input_frame)
+        self.create_service_summary_panel(input_frame)
+        self.create_depot_summary_panel(input_frame)
 
         # Treeview
         self.tree = ttk.Treeview(
             container,
             columns=("number", "name", "points", "hours", "sur_paye", "cash"),
             show="headings",
-            bootstyle="info"
+            bootstyle="primary"
         )
 
         headers = {
@@ -83,20 +82,62 @@ class DistributionTab:
 
     def create_bussboy_summary_panel(self, parent):
         # Frame container
-        bussboy_frame = ttk.LabelFrame(parent, text="BUSSBOY", padding=(10, 5))
-        bussboy_frame.grid(row=0, column=2, rowspan=4, padx=(20, 0), sticky=N)
+        bussboy_wrapper = ttk.Frame(parent)
+        bussboy_wrapper.grid(row=0, column=2, rowspan=4, padx=(20, 0), sticky=N)
+
+        title_label = ttk.Label(bussboy_wrapper, text="BUSSBOYS", font=("Helvetica", 11, "bold"))
+        title_label.pack(anchor=CENTER, pady=(0, 5))
+
+        bussboy_frame = ttk.Frame(bussboy_wrapper, padding=(10, 5), relief="groove", borderwidth=2)
+        bussboy_frame.pack(fill=X)
 
         # Percentage label
         self.bussboy_percentage_label = ttk.Label(bussboy_frame, text="Pourcentage: 0.00%", font=("Helvetica", 11, "bold"), foreground="#000000")
         self.bussboy_percentage_label.pack(anchor=W, pady=(5, 2))
-
-        # Amount label
-        self.bussboy_amount_label = ttk.Label(bussboy_frame, text="Montant: 0.00 $", font=("Helvetica", 11, "bold"), foreground="#0d6efd")
+        # Montant label
+        self.bussboy_amount_label = ttk.Label(bussboy_frame, text="Montant: 0.00 $", font=("Helvetica", 11, "bold"), foreground="#000000")
         self.bussboy_amount_label.pack(anchor=W, pady=(2, 2))
-
+        # Sur paye label
+        self.bussboy_sur_paye_label = ttk.Label(bussboy_frame, text="Sur Paye: 0.00 $", font=("Helvetica", 11, "bold"), foreground=self.sur_paye_color)
+        self.bussboy_sur_paye_label.pack(anchor=W, pady=(2, 2))
         # Cash label
-        self.bussboy_cash_label = ttk.Label(bussboy_frame, text="Cash: 0.00 $", font=("Helvetica", 11, "bold"), foreground="#28a745")
+        self.bussboy_cash_label = ttk.Label(bussboy_frame, text="Cash: 0.00 $", font=("Helvetica", 11, "bold"), foreground=self.cash_color)
         self.bussboy_cash_label.pack(anchor=W, pady=(2, 5))
+
+    def create_service_summary_panel(self, parent):
+        service_wrapper = ttk.Frame(parent)
+        service_wrapper.grid(row=0, column=3, rowspan=4, padx=(20, 0), sticky=N)
+
+        title_label = ttk.Label(service_wrapper, text="SERVICE", font=("Helvetica", 11, "bold"))
+        title_label.pack(anchor=CENTER, pady=(0, 5))
+
+        service_frame = ttk.Frame(service_wrapper, padding=(10, 5), relief="groove", borderwidth=2)
+        service_frame.pack(fill=X)
+
+        # Sur Paye
+        self.service_sur_paye_label = ttk.Label(service_frame, text="Sur Paye: 0.00 $", font=("Helvetica", 11, "bold"), foreground=self.sur_paye_color)
+        self.service_sur_paye_label.pack(anchor=W, pady=(5, 2))
+
+        # Cash
+        self.service_cash_label = ttk.Label(service_frame, text="Cash: 0.00 $", font=("Helvetica", 11, "bold"), foreground=self.cash_color)
+        self.service_cash_label.pack(anchor=W, pady=(2, 2))
+
+        # Frais Admin
+        self.service_admin_fees_label = ttk.Label(service_frame, text="Frais Admin: 0.00 $", font=("Helvetica", 11, "bold"), foreground=self.sur_paye_color)
+        self.service_admin_fees_label.pack(anchor=W, pady=(2, 5))
+
+    def create_depot_summary_panel(self, parent):
+        depot_wrapper = ttk.Frame(parent)
+        depot_wrapper.grid(row=0, column=4, rowspan=4, padx=(20, 0), sticky=N)
+
+        title_label = ttk.Label(depot_wrapper, text="DÉPOT", font=("Helvetica", 11, "bold"))
+        title_label.pack(anchor=CENTER, pady=(0, 5))
+
+        depot_frame = ttk.Frame(depot_wrapper, padding=(10, 5), relief="groove", borderwidth=2)
+        depot_frame.pack(fill=X)
+
+        self.service_owes_admin_label = ttk.Label(depot_frame, text="À remettre: 0.00 $", font=("Helvetica", 11, "bold"), foreground="#dc3545")
+        self.service_owes_admin_label.pack(anchor=W, pady=(5, 2))
 
     def load_day_data(self):
         try:
@@ -171,36 +212,45 @@ class DistributionTab:
         self.process()
 
     def get_inputs(self):
-        try:
-            ventes_net = float(self.fields["Ventes Nettes"].get() or "0")
-        except ValueError:
-            ventes_net = 0.0
-
-        try:
-            depot_net = float(self.fields["Dépot Net"].get() or "0")
-        except ValueError:
-            depot_net = 0.0
-
-        return ventes_net, depot_net
-
-    def get_bussboy_percentage(self, count):
-        shift = self.shift_var.get()
-
-        if shift == "Matin":
-            return 0.03 if count >= 1 else 0.0
-        elif shift == "Soir":
-            if count == 0:
+        def parse_float(value):
+            try:
+                return float(value or "0")
+            except ValueError:
                 return 0.0
-            elif count == 1:
-                return 0.02
-            elif count == 2:
-                return 0.025
-            else:
-                return 0.03
-        return 0.0
 
-    def distribution_bussboys(self):
-        bussboy_rows = []
+        ventes_net = parse_float(self.fields["Ventes Nettes"].get())
+        depot_net = parse_float(self.fields["Dépot Net"].get())
+        frais_admin = parse_float(self.fields["Frais Admin"].get())
+        cash = parse_float(self.fields["Cash"].get())
+
+        return ventes_net, depot_net, frais_admin, cash
+
+    def distribution_net_values(self, bussboy_amount):
+        _, depot_net, _, cash_initial = self.get_inputs()
+
+        if depot_net < 0:
+            depot_available = abs(depot_net)
+            service_owes_admin = 0.0
+        else:
+            depot_available = 0.0
+            service_owes_admin = depot_net
+
+        bussboy_sur_paye_distributed = min(bussboy_amount, depot_available)
+        bussboy_cash_distributed = bussboy_amount - bussboy_sur_paye_distributed
+
+        remaining_depot_for_service = max(0.0, depot_available - bussboy_sur_paye_distributed)
+        cash_available_for_service = max(0.0, cash_initial - service_owes_admin - bussboy_cash_distributed)
+
+        return {
+            "bussboy_sur_paye_distributed": bussboy_sur_paye_distributed,
+            "bussboy_cash_distributed": bussboy_cash_distributed,
+            "service_owes_admin": service_owes_admin,
+            "remaining_depot_for_service": remaining_depot_for_service,
+            "cash_available_for_service": cash_available_for_service
+        }
+
+    def get_bussboy_percentage_and_amount(self):
+        # Count bussboys
         count = 0
         in_bussboy_section = False
 
@@ -214,40 +264,67 @@ class DistributionTab:
 
             if in_bussboy_section and values[0] and values[1]:
                 try:
-                    hours = float(values[3])
-                    points = float(values[2])
-                    bussboy_rows.append((item, hours, points))
+                    float(values[3])  # hours
+                    float(values[2])  # points
                     count += 1
                 except (ValueError, TypeError):
                     continue
 
-        percentage = self.get_bussboy_percentage(count)
-        self.bussboy_percentage_label.config(text=f"Pourcentage: {percentage * 100:.2f}%")
+        # Determine percentage based on count and shift
+        shift = self.shift_var.get()
 
-        bussboy_amount = self.ventes_net * percentage
-        actual_tip_from_depot = abs(self.depot_net) if self.depot_net < 0 else 0.0
-        depot_paid = min(bussboy_amount, actual_tip_from_depot)
-        cash_paid = max(0, bussboy_amount - depot_paid)
-        total_weight = sum(h * p for _, h, p in bussboy_rows)
-
-        for item, hours, points in bussboy_rows:
-            weight = hours * points
-            if total_weight > 0:
-                share = (weight / total_weight) * bussboy_amount
-                sur_paye = (weight / total_weight) * depot_paid
-                cash = share - sur_paye
+        if shift == "Matin":
+            bussboy_percentage = 0.03 if count >= 1 else 0.0
+        elif shift == "Soir":
+            if count == 0:
+                bussboy_percentage = 0.0
+            elif count == 1:
+                bussboy_percentage = 0.02
+            elif count == 2:
+                bussboy_percentage = 0.025
             else:
-                sur_paye = cash = 0.0
+                bussboy_percentage = 0.03
+        else:
+            bussboy_percentage = 0.0
 
-            values = list(self.tree.item(item)["values"])
-            values[4] = f"{sur_paye:.2f}"
-            values[5] = f"{cash:.2f}"
-            self.tree.item(item, values=values)
+        # Calculate amount
+        ventes_net, _, _, _ = self.get_inputs()
+        bussboy_amount = ventes_net * bussboy_percentage
+
+        return bussboy_percentage, bussboy_amount
+
+    def distribution_bussboys(self):
+        pass
 
     def distribution_service(self):
         pass
 
     def process(self):
-        self.ventes_net, self.depot_net = self.get_inputs()
+        # Get user-entered inputs
+        self.ventes_net, self.depot_net, self.frais_admin, self.cash = self.get_inputs()
+
+        # Calculate bussboy percentage and amount
+        bussboy_percentage, bussboy_amount = self.get_bussboy_percentage_and_amount()
+
+        # Calculate distribution net values
+        net_values = self.distribution_net_values(bussboy_amount)
+
+        # Update BUSSBOYS summary panel
+        self.bussboy_percentage_label.config(text=f"Pourcentage: {bussboy_percentage * 100:.2f}%")
+        self.bussboy_amount_label.config(text=f"Montant: {bussboy_amount:.2f} $")
+        self.bussboy_sur_paye_label.config(text=f"Sur Paye: {net_values['bussboy_sur_paye_distributed']:.2f} $")
+        self.bussboy_cash_label.config(text=f"Cash: {net_values['bussboy_cash_distributed']:.2f} $")
+
+        # Update DÉPOT summary panel
+        self.service_owes_admin_label.config(text=f"À remettre: {net_values['service_owes_admin']:.2f} $")
+
+        # Update SERVICE summary panel
+        self.service_sur_paye_label.config(text=f"Sur Paye: {net_values['remaining_depot_for_service']:.2f} $")
+        self.service_cash_label.config(text=f"Cash: {net_values['cash_available_for_service']:.2f} $")
+        self.service_admin_fees_label.config(text=f"Frais Admin: {self.frais_admin:.2f} $")
+
+        # 🔄 Distribute values to table
         self.distribution_bussboys()
         self.distribution_service()
+
+

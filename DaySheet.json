@@ -1,23 +1,32 @@
 {
-  "date": "22-juillet-2025-mardi",
+  "date": "02-juillet-2025-mercredi",
   "entries": [
     {
-      "section": "Bussboy",
-      "number": "1526",
-      "name": "Maxence Beaudry",
-      "points": "4",
-      "in": "16:30",
-      "out": "21:30",
+      "section": "Service",
+      "number": "12",
+      "name": "Alexandre Vandal",
+      "points": "10",
+      "in": "10:30",
+      "out": "15:30",
       "hours": "5.00"
     },
     {
       "section": "Bussboy",
-      "number": "1749",
-      "name": "Charles Desrosiers",
-      "points": "3",
-      "in": "16:30",
+      "number": "6",
+      "name": "Sandrine Campeau",
+      "points": "4",
+      "in": "15:30",
       "out": "21:30",
-      "hours": "5.00"
+      "hours": "6.00"
+    },
+    {
+      "section": "Bussboy",
+      "number": "1665",
+      "name": "Vincent Fradet",
+      "points": "3",
+      "in": "14:30",
+      "out": "22:30",
+      "hours": "8.00"
     }
   ]
 }
