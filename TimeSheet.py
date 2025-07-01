@@ -31,6 +31,7 @@ class TimeSheet:
 
         ttk.Label(header_frame, text="Remplir les heures du:", font=("Helvetica", 16, "bold")).pack(side=LEFT)
         self.date_picker = DateEntry(header_frame, bootstyle="primary", dateformat="%d-%B-%Y-%A", width=20)
+        self.date_picker.entry.bind("<Key>", lambda e: "break")  # block manual typing
         self.date_picker.pack(side=LEFT, padx=(10, 0))
 
         confirm_btn = ttk.Button(
