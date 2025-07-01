@@ -15,7 +15,7 @@ class DistributionTab:
         top_frame = ttk.Frame(container)
         top_frame.pack(fill=X)
 
-        self.date_label = ttk.Label(top_frame, text="Feuille du:", font=("Helvetica", 10, "bold"))
+        self.date_label = ttk.Label(top_frame, text="FEUILLE DU:", font=("Helvetica", 14, "bold"))
         self.date_label.pack(anchor=W)
 
         # Toggle buttons
@@ -25,11 +25,11 @@ class DistributionTab:
         toggle_frame.pack(anchor=W, pady=5)
 
         self.matin_button = ttk.Button(
-            toggle_frame, text="Matin", bootstyle="outline-primary", width=8,
+            toggle_frame, text="Matin", bootstyle="outline-primary", width=10,
             command=lambda: self.set_shift("Matin")
         )
         self.soir_button = ttk.Button(
-            toggle_frame, text="Soir", bootstyle="outline-primary", width=8,
+            toggle_frame, text="Soir", bootstyle="outline-primary", width=10,
             command=lambda: self.set_shift("Soir")
         )
 
@@ -51,8 +51,7 @@ class DistributionTab:
             if label in {"Ventes Nettes", "Dépot Net"}:
                 entry.bind("<KeyRelease>", lambda e: self.process())
 
-        self.bussboy_label = ttk.Label(input_frame, text="", font=("Helvetica", 10, "bold"))
-        self.bussboy_label.grid(row=0, column=2, rowspan=4, padx=(20, 0), sticky=N)
+        self.create_bussboy_summary_panel(input_frame)
 
         # Treeview
         self.tree = ttk.Treeview(
@@ -81,6 +80,23 @@ class DistributionTab:
         # Load data from day_data.json
         day_data, selected_date = self.load_day_data()
         self.load_day_sheet_data(day_data, selected_date)
+
+    def create_bussboy_summary_panel(self, parent):
+        # Frame container
+        bussboy_frame = ttk.LabelFrame(parent, text="BUSSBOY", padding=(10, 5))
+        bussboy_frame.grid(row=0, column=2, rowspan=4, padx=(20, 0), sticky=N)
+
+        # Percentage label
+        self.bussboy_percentage_label = ttk.Label(bussboy_frame, text="Pourcentage: 0.00%", font=("Helvetica", 11, "bold"), foreground="#000000")
+        self.bussboy_percentage_label.pack(anchor=W, pady=(5, 2))
+
+        # Amount label
+        self.bussboy_amount_label = ttk.Label(bussboy_frame, text="Montant: 0.00 $", font=("Helvetica", 11, "bold"), foreground="#0d6efd")
+        self.bussboy_amount_label.pack(anchor=W, pady=(2, 2))
+
+        # Cash label
+        self.bussboy_cash_label = ttk.Label(bussboy_frame, text="Cash: 0.00 $", font=("Helvetica", 11, "bold"), foreground="#28a745")
+        self.bussboy_cash_label.pack(anchor=W, pady=(2, 5))
 
     def load_day_data(self):
         try:
@@ -154,11 +170,6 @@ class DistributionTab:
 
         self.process()
 
-    def process(self):
-        self.ventes_net, self.depot_net = self.get_inputs()
-        self.distribution_bussboys()
-        self.distribution_service()
-
     def get_inputs(self):
         try:
             ventes_net = float(self.fields["Ventes Nettes"].get() or "0")
@@ -171,6 +182,22 @@ class DistributionTab:
             depot_net = 0.0
 
         return ventes_net, depot_net
+
+    def get_bussboy_percentage(self, count):
+        shift = self.shift_var.get()
+
+        if shift == "Matin":
+            return 0.03 if count >= 1 else 0.0
+        elif shift == "Soir":
+            if count == 0:
+                return 0.0
+            elif count == 1:
+                return 0.02
+            elif count == 2:
+                return 0.025
+            else:
+                return 0.03
+        return 0.0
 
     def distribution_bussboys(self):
         bussboy_rows = []
@@ -194,12 +221,8 @@ class DistributionTab:
                 except (ValueError, TypeError):
                     continue
 
-        if self.shift_var.get() == "Matin":
-            percentage = 0.03
-        elif self.shift_var.get() == "Soir":
-            percentage = 0.0 if count == 0 else 0.02 + max(0, (count - 1)) * 0.005
-        else:
-            percentage = 0.0
+        percentage = self.get_bussboy_percentage(count)
+        self.bussboy_percentage_label.config(text=f"Pourcentage: {percentage * 100:.2f}%")
 
         bussboy_amount = self.ventes_net * percentage
         actual_tip_from_depot = abs(self.depot_net) if self.depot_net < 0 else 0.0
@@ -221,20 +244,10 @@ class DistributionTab:
             values[5] = f"{cash:.2f}"
             self.tree.item(item, values=values)
 
-        label = f"Bussboys: {count} bussboys, ({percentage * 100:.1f}%) = {bussboy_amount:.2f}$"
-
-        if actual_tip_from_depot > 0:
-            if depot_paid < bussboy_amount:
-                label += f"\nBussboy Dépot: {bussboy_amount - depot_paid:.2f}$ cash required to complete payment"
-            else:
-                label += "\nBussboy Dépot: Fully covered by dépôt"
-            depot_restant = self.depot_net + depot_paid
-        else:
-            label += f"\nBussboy Dépot: {bussboy_amount:.2f}$ cash required to complete payment"
-            depot_restant = self.depot_net
-
-        label += f"\nDépot restant: {depot_restant:.2f}$"
-        self.bussboy_label.config(text=label)
-
     def distribution_service(self):
         pass
+
+    def process(self):
+        self.ventes_net, self.depot_net = self.get_inputs()
+        self.distribution_bussboys()
+        self.distribution_service()
