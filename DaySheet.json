@@ -1,4 +1,32 @@
 {
-  "date": "02-juillet-2025-mercredi",
-  "entries": []
+  "date": "01-juillet-2025-mardi",
+  "entries": [
+    {
+      "section": "Service",
+      "number": "21",
+      "name": "Caroline Jacques",
+      "points": "10",
+      "in": "16:30",
+      "out": "21:30",
+      "hours": "5.00"
+    },
+    {
+      "section": "Service",
+      "number": "26",
+      "name": "Béatrice Beaulieu",
+      "points": "9",
+      "in": "16:30",
+      "out": "21:15",
+      "hours": "4.75"
+    },
+    {
+      "section": "Bussboy",
+      "number": "6",
+      "name": "Sandrine Campeau",
+      "points": "4",
+      "in": "08:30",
+      "out": "15:30",
+      "hours": "7.00"
+    }
+  ]
 }

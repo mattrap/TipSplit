@@ -53,6 +53,7 @@ class TimeSheet:
             show="headings",
             bootstyle="primary"
         )
+        self.tree.configure(selectmode="none")
 
         self.base_labels = {
             "number": "Numéro",
@@ -80,9 +81,10 @@ class TimeSheet:
 
         self.tree.pack(fill=BOTH, expand=True)
 
-        self.tree.tag_configure("section", font=("Helvetica", 12, "bold"), background="#b4c7af")
+        self.tree.tag_configure("section", font=("Helvetica", 12, "bold"), background="#b4c7af") #dark green
         self.tree.tag_configure("hover", background="#e0f7fa")
-        self.tree.tag_configure("total", font=("Helvetica", 10, "bold"), background="#e8f5e9")
+        self.tree.tag_configure("total", font=("Helvetica", 10, "bold"), background="#e8f5e9") # light green
+        self.tree.tag_configure("filled", background="#d8eff0")  # after data entered
 
         self.tree.bind("<Button-1>", self.on_click)
         self.tree.bind("<Motion>", self.on_hover)
@@ -244,6 +246,14 @@ class TimeSheet:
             "out": punch_out,
             "total": total_float
         }
+
+        # Add or remove "filled" tag
+        tags = list(self.tree.item(row_id, "tags"))
+        if total_float > 0 and "filled" not in tags:
+            tags.append("filled")
+        elif total_float == 0 and "filled" in tags:
+            tags.remove("filled")
+        self.tree.item(row_id, tags=tuple(tags))
 
         self.update_totals()
 
