@@ -1,32 +1,4 @@
 {
-  "date": "01-juillet-2025-mardi",
-  "entries": [
-    {
-      "section": "Service",
-      "number": "12",
-      "name": "Alexandre Vandal",
-      "points": "10",
-      "in": "09:30",
-      "out": "15:30",
-      "hours": "6.00"
-    },
-    {
-      "section": "Bussboy",
-      "number": "1276",
-      "name": "Thomas Bousquet",
-      "points": "4",
-      "in": "15:30",
-      "out": "21:30",
-      "hours": "6.00"
-    },
-    {
-      "section": "Bussboy",
-      "number": "1665",
-      "name": "Vincent Fradet",
-      "points": "3",
-      "in": "09:30",
-      "out": "21:30",
-      "hours": "12.00"
-    }
-  ]
+  "date": "02-juillet-2025-mercredi",
+  "entries": []
 }

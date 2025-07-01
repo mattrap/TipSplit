@@ -43,6 +43,9 @@ class TimeSheet:
         confirm_btn.pack(side=RIGHT)
         self.date_picker.entry.delete(0, END)
 
+        self.status_label = ttk.Label(header_frame, text="", font=("Helvetica", 10))
+        self.status_label.pack(side=LEFT, padx=10)
+
         # Treeview
         self.tree = ttk.Treeview(
             content,
@@ -77,7 +80,7 @@ class TimeSheet:
 
         self.tree.pack(fill=BOTH, expand=True)
 
-        self.tree.tag_configure("section", font=("Helvetica", 10, "bold"))
+        self.tree.tag_configure("section", font=("Helvetica", 12, "bold"), background="#b4c7af")
         self.tree.tag_configure("hover", background="#e0f7fa")
         self.tree.tag_configure("total", font=("Helvetica", 10, "bold"), background="#e8f5e9")
 
@@ -155,11 +158,16 @@ class TimeSheet:
 
         if not date_str:
             self.flash_date_field()
+            self.status_label.config(text="⛔ Veuillez choisir une date!", foreground="#B22222")
+            self.fade_out_status_label()
             return
+
         try:
             datetime.strptime(date_str, self.date_picker._dateformat)
         except ValueError:
             self.flash_date_field()
+            self.status_label.config(text="⛔ Format de date invalide!", foreground="#B22222")
+            self.fade_out_status_label()
             return
 
         for item in self.tree.get_children():
@@ -196,6 +204,9 @@ class TimeSheet:
                 "date": self.date_picker.entry.get(),
                 "entries": export_data
             }, f, ensure_ascii=False, indent=2)
+
+        self.status_label.config(text="✅ Les Heures ont été enregistrées et transférées à l’onglet Distribution", foreground="#228B22")
+        self.fade_out_status_label()
 
         if self.reload_distribution_data:
             self.reload_distribution_data()
@@ -316,3 +327,37 @@ class TimeSheet:
             entry.after(150, lambda: flash(count + 1))
 
         flash()
+
+    def fade_out_status_label(self, delay=1500, steps=7):
+        def rgb_to_hex(r, g, b):
+            return f"#{r:02x}{g:02x}{b:02x}"
+
+        try:
+            # Get the current foreground color of the label
+            fg_color = self.status_label.cget("foreground")
+            original_rgb = tuple(c // 256 for c in self.status_label.winfo_rgb(fg_color))
+        except:
+            original_rgb = (0, 0, 0)  # fallback to black
+
+        try:
+            # Get the label's background color to fade into
+            bg_color = self.status_label.cget("background")
+            target_rgb = tuple(c // 256 for c in self.status_label.winfo_rgb(bg_color))
+        except:
+            target_rgb = (255, 255, 255)  # fallback to white
+
+        def step_fade(step=0):
+            if step >= steps:
+                self.status_label.config(text="")
+                return
+
+            ratio = 1 - (step / steps)
+            r = int(original_rgb[0] * ratio + target_rgb[0] * (1 - ratio))
+            g = int(original_rgb[1] * ratio + target_rgb[1] * (1 - ratio))
+            b = int(original_rgb[2] * ratio + target_rgb[2] * (1 - ratio))
+            self.status_label.config(foreground=rgb_to_hex(r, g, b))
+            self.root.after(delay // steps, lambda: step_fade(step + 1))
+
+        self.root.after(delay, step_fade)
+
+
