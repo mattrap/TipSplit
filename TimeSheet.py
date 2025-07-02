@@ -13,7 +13,7 @@ EXPORT_FILE = "DaySheet.json"
 
 class TimeSheet:
     def __init__(self, root, shared_data=None, reload_distribution_data=None):
-        self.shared_data = shared_data or {}
+        self.shared_data = shared_data
         self.reload_distribution_data = reload_distribution_data
         self.root = root
         self.service_total_row = None
@@ -201,13 +201,14 @@ class TimeSheet:
                     "hours": f"{total:.2f}"
                 })
 
-        with open(EXPORT_FILE, "w", encoding="utf-8") as f:
-            json.dump({
-                "date": self.date_picker.entry.get(),
-                "entries": export_data
-            }, f, ensure_ascii=False, indent=2)
+        self.shared_data.setdefault("transfer", {})
+        self.shared_data["transfer"]["date"] = date_str
+        self.shared_data["transfer"]["entries"] = export_data
 
-        self.status_label.config(text="✅ Les Heures ont été enregistrées et transférées à l’onglet Distribution", foreground="#228B22")
+        self.status_label.config(
+            text="✅ Les Heures ont été enregistrées et transférées à l’onglet Distribution",
+            foreground="#228B22"
+        )
         self.fade_out_status_label()
 
         if self.reload_distribution_data:

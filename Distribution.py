@@ -3,9 +3,11 @@ from ttkbootstrap.constants import *
 import json
 
 class DistributionTab:
-    def __init__(self, root, shared_data=None):
+    def __init__(self, root, shared_data):
         self.root = root
-        self.shared_data = shared_data or {}
+        if shared_data is None:
+            raise ValueError("shared_data must be provided to DistributionTab")
+        self.shared_data = shared_data
         self.selected_date_str = ""
 
         container = ttk.Frame(root, padding=10)
@@ -77,10 +79,6 @@ class DistributionTab:
         self.tree.pack(fill=BOTH, expand=True)
         self.tree.tag_configure("section", font=("Helvetica", 10, "bold"))
 
-        # Load data from day_data.json
-        day_data, selected_date = self.load_day_data()
-        self.load_day_sheet_data(day_data, selected_date)
-
     def create_bussboy_summary_panel(self, parent):
         # Frame container
         bussboy_wrapper = ttk.Frame(parent)
@@ -145,38 +143,6 @@ class DistributionTab:
             foreground=color_if_nonzero if value != 0 else self.grey_color
         )
 
-    def load_day_data(self):
-        try:
-            with open("DaySheet.json", "r", encoding="utf-8") as f:
-                data = json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError):
-            return [], "aucune date"
-
-        entries = data.get("entries", [])
-        selected_date = data.get("date", "aucune date")
-
-        organized_data = []
-        last_section = None
-        for entry in entries:
-            section = entry.get("section", "")
-            if section != last_section:
-                organized_data.append({
-                    "section": section,
-                    "number": "",
-                    "name": f"--- {section} ---",
-                    "points": "",
-                    "in": "",
-                    "out": "",
-                    "hours": "",
-                    "is_section": True
-                })
-                last_section = section
-
-            entry["is_section"] = False
-            organized_data.append(entry)
-
-        return organized_data, selected_date
-
     def set_shift(self, value):
         self.shift_var.set(value)
 
@@ -189,31 +155,6 @@ class DistributionTab:
 
         if self.selected_date_str:
             self.date_label.config(text=f"Feuille du: {self.selected_date_str}-{value.upper()}")
-
-        self.process()
-
-    def load_day_sheet_data(self, data, selected_date=None):
-        self.tree.delete(*self.tree.get_children())
-
-        if selected_date:
-            self.selected_date_str = selected_date
-        else:
-            self.selected_date_str = "??-??-????"
-
-        self.date_label.config(text=f"Feuille du: {self.selected_date_str}")
-
-        for entry in data:
-            if entry.get("is_section"):
-                self.tree.insert("", "end", values=("", entry["name"], "", "", "", ""), tags=("section",))
-            else:
-                self.tree.insert("", "end", values=(
-                    entry.get("number", ""),
-                    entry.get("name", ""),
-                    entry.get("points", ""),
-                    entry.get("hours", ""),
-                    "",  # Sur paye
-                    ""   # Cash
-                ))
 
         self.process()
 
@@ -346,6 +287,55 @@ class DistributionTab:
 
     def distribution_service(self):
         pass
+
+    def load_day_sheet_data(self):
+        transfer_data = self.shared_data.get("transfer")
+        if not transfer_data:
+            print("⚠️ No transfer data found.")
+            return
+
+        print(f"📦 Current shared_data in Distribution: {self.shared_data}")  # Debug line
+
+        entries = transfer_data.get("entries", [])
+        selected_date = transfer_data.get("date", "??-??-????")
+        self.selected_date_str = selected_date
+
+        organized_data = []
+        last_section = None
+        for entry in entries:
+            section = entry.get("section", "")
+            if section != last_section:
+                organized_data.append({
+                    "section": section,
+                    "number": "",
+                    "name": f"--- {section} ---",
+                    "points": "",
+                    "in": "",
+                    "out": "",
+                    "hours": "",
+                    "is_section": True
+                })
+                last_section = section
+            entry["is_section"] = False
+            organized_data.append(entry)
+
+        self.tree.delete(*self.tree.get_children())
+        self.date_label.config(text=f"Feuille du: {self.selected_date_str}")
+
+        for entry in organized_data:
+            if entry.get("is_section"):
+                self.tree.insert("", "end", values=("", entry["name"], "", "", "", ""), tags=("section",))
+            else:
+                self.tree.insert("", "end", values=(
+                    entry.get("number", ""),
+                    entry.get("name", ""),
+                    entry.get("points", ""),
+                    entry.get("hours", ""),
+                    "",  # Sur paye
+                    ""  # Cash
+                ))
+
+        self.process()
 
     def process(self):
         # Get user-entered inputs

@@ -20,7 +20,6 @@ class TipSplitApp:
         self.create_timesheet_tab()
         self.create_distribution_tab()
 
-        # Must come after master tab is created so menu can access it
         create_menu_bar(self.root, self)
 
     def create_master_tab(self):
@@ -59,8 +58,8 @@ class TipSplitApp:
 
     def reload_distribution_tab(self):
         if hasattr(self, "distribution_tab"):
-            day_data, selected_date = self.distribution_tab.load_day_data()
-            self.distribution_tab.load_day_sheet_data(day_data, selected_date=selected_date)
+            self.distribution_tab.load_day_sheet_data()
+
 
     def reload_timesheet_data(self):
         if hasattr(self, "timesheet_tab"):
