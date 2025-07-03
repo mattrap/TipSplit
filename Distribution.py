@@ -58,7 +58,7 @@ class DistributionTab:
         # Treeview
         self.tree = ttk.Treeview(
             container,
-            columns=("number", "name", "points", "hours", "sur_paye", "cash"),
+            columns=("number", "name", "points", "hours", "sur_paye", "cash", "frais_admin"),
             show="headings",
             bootstyle="primary"
         )
@@ -69,7 +69,9 @@ class DistributionTab:
             "points": "Points",
             "hours": "Hours",
             "sur_paye": "Sur paye",
-            "cash": "Cash"
+            "cash": "Cash",
+            "frais_admin": "Frais Admin"
+
         }
 
         for col in self.tree["columns"]:
@@ -172,32 +174,41 @@ class DistributionTab:
 
         return ventes_net, depot_net, frais_admin, cash
 
+    def round_cash_down(self, value):
+        """Rounds down to the nearest 0.25 (for distributing)"""
+        return (int(value * 4)) / 4.0
+
+    def round_cash_up(self, value):
+        """Rounds up to the nearest 0.25 (for amounts owed)."""
+        return ((int(value * 4 + 0.9999)) / 4.0)
+
     def distribution_net_values(self, bussboy_amount):
-        _, depot_net, _, cash_initial = self.get_inputs()
+        _, depot_net, frais_admin, cash_initial = self.get_inputs()
 
         if depot_net < 0:
-            depot_available = abs(depot_net)
+            depot_available = self.round_cash_up(abs(depot_net))
             service_owes_admin = 0.0
         else:
             depot_available = 0.0
-            service_owes_admin = depot_net
+            service_owes_admin = self.round_cash_up(depot_net)
 
         # zero si depot_available = 0 sinon combien le dépot couvre
         bussboy_sur_paye_distributed = min(bussboy_amount, depot_available)
-        # montant manquant du dépot pour couvrir bussboys
-        bussboy_cash_distributed = bussboy_amount - bussboy_sur_paye_distributed
+        # montant manquant du dépot pour couvrir bussboys, ROUND UP
+        bussboy_cash_distributed = self.round_cash_up(bussboy_amount - bussboy_sur_paye_distributed)
 
         # dépot net apres bussboy payés ou zero si il en reste plus
         remaining_depot_for_service = max(0.0, depot_available - bussboy_sur_paye_distributed)
         # cash after paying the dépot and paying the bussboys, montant dù ou 0
         cash_available_for_service = max(0.0, cash_initial - service_owes_admin - bussboy_cash_distributed)
-
+        frais_admin_service = frais_admin * 0.8
         return {
             "bussboy_sur_paye_distributed": bussboy_sur_paye_distributed,
             "bussboy_cash_distributed": bussboy_cash_distributed,
             "service_owes_admin": service_owes_admin,
             "remaining_depot_for_service": remaining_depot_for_service,
-            "cash_available_for_service": cash_available_for_service
+            "cash_available_for_service": cash_available_for_service,
+            "frais_admin_service": frais_admin_service
         }
 
     def get_bussboy_percentage_and_amount(self):
@@ -280,13 +291,55 @@ class DistributionTab:
         for item, product in bussboy_items:
             proportion = product / total_points_hours
             sur_paye = proportion * net_values["bussboy_sur_paye_distributed"]
-            cash = proportion * net_values["bussboy_cash_distributed"]
+            cash = self.round_cash_down(proportion * net_values["bussboy_cash_distributed"])
 
             self.tree.set(item, "sur_paye", f"{sur_paye:.2f}")
             self.tree.set(item, "cash", f"{cash:.2f}")
 
     def distribution_service(self):
-        pass
+        # Get distribution values
+        _, bussboy_amount = self.get_bussboy_percentage_and_amount()
+        net_values = self.distribution_net_values(bussboy_amount)
+        remaining_depot = net_values["remaining_depot_for_service"]
+        available_cash = net_values["cash_available_for_service"]
+        frais_admin_service = net_values["frais_admin_service"]
+
+        total_points_hours = 0
+        service_items = []
+
+        # First pass: collect service entries and compute total (points × hours)
+        in_service_section = False
+        for item in self.tree.get_children():
+            values = self.tree.item(item)["values"]
+            name = values[1]
+
+            if name.startswith("---"):
+                in_service_section = "Service" in name
+                continue
+
+            if in_service_section and values[0] and values[1]:
+                try:
+                    points = float(values[2])
+                    hours = float(values[3])
+                    product = points * hours
+                    total_points_hours += product
+                    service_items.append((item, product))
+                except (ValueError, TypeError):
+                    continue
+
+        if total_points_hours == 0:
+            return
+
+        # Second pass: distribute Sur Paye, Cash, and Frais Admin proportionally
+        for item, product in service_items:
+            proportion = product / total_points_hours
+            sur_paye = proportion * remaining_depot
+            cash = self.round_cash_down(proportion * available_cash)
+            admin = proportion * frais_admin_service
+
+            self.tree.set(item, "sur_paye", f"{sur_paye:.2f}")
+            self.tree.set(item, "cash", f"{cash:.2f}")
+            self.tree.set(item, "frais_admin", f"{admin:.2f}")
 
     def load_day_sheet_data(self):
         transfer_data = self.shared_data.get("transfer")
@@ -332,7 +385,8 @@ class DistributionTab:
                     entry.get("points", ""),
                     entry.get("hours", ""),
                     "",  # Sur paye
-                    ""  # Cash
+                    "",  # Cash
+                    ""  # Frais Admin
                 ))
 
         self.process()
@@ -356,7 +410,7 @@ class DistributionTab:
 
         self.update_label(self.service_sur_paye_label, net_values["remaining_depot_for_service"], "Sur Paye",self.sur_paye_color)
         self.update_label(self.service_cash_label, net_values["cash_available_for_service"], "Cash", self.cash_color)
-        self.update_label(self.service_admin_fees_label, self.frais_admin, "Frais Admin", self.sur_paye_color)
+        self.update_label(self.service_admin_fees_label, net_values["frais_admin_service"], "Frais Admin",self.sur_paye_color)
 
         # 🔄 Distribute values to table
         self.distribution_bussboys()
