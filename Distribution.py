@@ -58,7 +58,7 @@ class DistributionTab:
         # Treeview
         self.tree = ttk.Treeview(
             container,
-            columns=("number", "name", "points", "hours", "sur_paye", "cash", "frais_admin"),
+            columns=("number", "name", "points", "hours", "cash", "sur_paye", "frais_admin"),
             show="headings",
             bootstyle="primary"
         )
@@ -68,8 +68,8 @@ class DistributionTab:
             "name": "Name",
             "points": "Points",
             "hours": "Hours",
+            "cash": "💵 Cash 💵",
             "sur_paye": "Sur paye",
-            "cash": "Cash",
             "frais_admin": "Frais Admin"
 
         }
@@ -79,7 +79,7 @@ class DistributionTab:
             self.tree.column(col, width=100, anchor=CENTER)
 
         self.tree.pack(fill=BOTH, expand=True)
-        self.tree.tag_configure("section", font=("Helvetica", 10, "bold"))
+        self.tree.tag_configure("section", font=("Helvetica", 10, "bold"), background="#b4c7af")
 
     def create_bussboy_summary_panel(self, parent):
         # Frame container
@@ -186,7 +186,7 @@ class DistributionTab:
         _, depot_net, frais_admin, cash_initial = self.get_inputs()
 
         if depot_net < 0:
-            depot_available = self.round_cash_up(abs(depot_net))
+            depot_available = abs(depot_net)
             service_owes_admin = 0.0
         else:
             depot_available = 0.0
@@ -293,8 +293,8 @@ class DistributionTab:
             sur_paye = proportion * net_values["bussboy_sur_paye_distributed"]
             cash = self.round_cash_down(proportion * net_values["bussboy_cash_distributed"])
 
-            self.tree.set(item, "sur_paye", f"{sur_paye:.2f}")
             self.tree.set(item, "cash", f"{cash:.2f}")
+            self.tree.set(item, "sur_paye", f"{sur_paye:.2f}")
 
     def distribution_service(self):
         # Get distribution values
@@ -337,8 +337,8 @@ class DistributionTab:
             cash = self.round_cash_down(proportion * available_cash)
             admin = proportion * frais_admin_service
 
-            self.tree.set(item, "sur_paye", f"{sur_paye:.2f}")
             self.tree.set(item, "cash", f"{cash:.2f}")
+            self.tree.set(item, "sur_paye", f"{sur_paye:.2f}")
             self.tree.set(item, "frais_admin", f"{admin:.2f}")
 
     def load_day_sheet_data(self):
@@ -346,8 +346,6 @@ class DistributionTab:
         if not transfer_data:
             print("⚠️ No transfer data found.")
             return
-
-        print(f"📦 Current shared_data in Distribution: {self.shared_data}")  # Debug line
 
         entries = transfer_data.get("entries", [])
         selected_date = transfer_data.get("date", "??-??-????")
@@ -384,8 +382,8 @@ class DistributionTab:
                     entry.get("name", ""),
                     entry.get("points", ""),
                     entry.get("hours", ""),
+                    "",  # CASH
                     "",  # Sur paye
-                    "",  # Cash
                     ""  # Frais Admin
                 ))
 

@@ -207,8 +207,7 @@ class TimeSheet:
 
         self.status_label.config(
             text="✅ Les Heures ont été enregistrées et transférées à l’onglet Distribution",
-            foreground="#228B22"
-        )
+            foreground="#228B22")
         self.fade_out_status_label()
 
         if self.reload_distribution_data:
