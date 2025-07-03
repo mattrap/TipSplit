@@ -4,6 +4,8 @@ from MenuBar import create_menu_bar
 from Master import MasterSheet
 from TimeSheet import TimeSheet
 from Distribution import DistributionTab
+from tkinter.simpledialog import askstring
+from tkinter import messagebox
 
 class TipSplitApp:
     def __init__(self, root):
@@ -51,6 +53,13 @@ class TipSplitApp:
             shared_data=self.shared_data
         )
 
+    def authenticate_and_show_master(self):
+        password = askstring("🔒 Accès restreint", "Entrez le mot de passe:")
+        if password == "admin123":
+            self.show_master_tab()
+        else:
+            messagebox.showerror("Erreur", "Mot de passe incorrect.")
+
     def show_master_tab(self):
         if str(self.master_frame) not in self.notebook.tabs():
             self.notebook.add(self.master_frame, text="Master Sheet")
@@ -59,7 +68,6 @@ class TipSplitApp:
     def reload_distribution_tab(self):
         if hasattr(self, "distribution_tab"):
             self.distribution_tab.load_day_sheet_data()
-
 
     def reload_timesheet_data(self):
         if hasattr(self, "timesheet_tab"):

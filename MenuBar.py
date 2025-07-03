@@ -10,7 +10,8 @@ def create_menu_bar(root, app):
     # Open menu
     open_button = ttk.Menubutton(menu_bar, text="Open")
     open_menu = ttk.Menu(open_button)
-    open_menu.add_command(label="Master Sheet", command=app.show_master_tab)
+    open_menu.add_command(label="Master Sheet", command=app.authenticate_and_show_master)
+
     open_button["menu"] = open_menu
     open_button.pack(side=LEFT, padx=5)
 
