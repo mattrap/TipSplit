@@ -1,6 +1,8 @@
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
-import json
+from Export import get_pay_period
+from Export import export_distribution_from_tab
+from datetime import datetime
 
 class DistributionTab:
     def __init__(self, root, shared_data):
@@ -10,54 +12,88 @@ class DistributionTab:
         self.shared_data = shared_data
         self.selected_date_str = ""
 
+        self.set_theme_colors()
+
         container = ttk.Frame(root, padding=10)
         container.pack(fill=BOTH, expand=True)
 
-        # Top container with date label and toggle buttons stacked
-        top_frame = ttk.Frame(container)
-        top_frame.pack(fill=X)
-        self.date_label = ttk.Label(top_frame, text="FEUILLE DU:", font=("Helvetica", 14, "bold"))
-        self.date_label.pack(anchor=W)
+        self.setup_layout(container)
 
-        # Toggle buttons
-        self.shift_var = ttk.StringVar(value="")
-        toggle_frame = ttk.Frame(top_frame)
-        toggle_frame.pack(anchor=W, pady=5)
-        self.matin_button = ttk.Button(toggle_frame, text="Matin", bootstyle="outline-primary", width=10,
-            command=lambda: self.set_shift("Matin"))
-        self.soir_button = ttk.Button(toggle_frame, text="Soir", bootstyle="outline-primary", width=10,
-            command=lambda: self.set_shift("Soir"))
-        self.matin_button.pack(side=LEFT, padx=5)
-        self.soir_button.pack(side=LEFT, padx=5)
-
-        # Distribution colors
+    def set_theme_colors(self):
         self.sur_paye_color = "#258dba"
         self.cash_color = "#28a745"
         self.grey_color = "#6c757d"
 
-        # Input section
-        input_frame = ttk.LabelFrame(container, text="Paramètres de distribution", padding=10)
-        input_frame.pack(fill=X, pady=(0, 10))
+    def setup_layout(self, container):
+        top_frame = ttk.Frame(container)
+        top_frame.pack(fill=X)
+
+        self.create_header_labels(top_frame)
+        self.create_shift_and_export_buttons(top_frame)
+        self.create_input_fields(container)
+        self.create_summary_panels(self.input_frame)
+        self.create_distribution_treeview(container)
+
+    def create_header_labels(self, parent):
+        label_row = ttk.Frame(parent)
+        label_row.pack(fill=X, pady=(0, 5))
+
+        self.date_label = ttk.Label(label_row, text="Feuille du:", font=("Helvetica", 14, "bold"))
+        self.date_label.pack(side=LEFT)
+
+        ttk.Label(label_row).pack(side=LEFT, expand=True)
+
+        self.pay_period_label = ttk.Label(label_row, font=("Helvetica", 12, "bold"), foreground="#1f6f8b")
+        self.pay_period_label.pack(side=LEFT, padx=(10, 0))
+
+    def create_shift_and_export_buttons(self, parent):
+        toggle_frame = ttk.Frame(parent)
+        toggle_frame.pack(fill=X, pady=5)
+
+        shift_buttons = ttk.Frame(toggle_frame)
+        shift_buttons.pack(side=LEFT)
+
+        self.shift_var = ttk.StringVar(value="")
+
+        self.matin_button = ttk.Button(
+            shift_buttons, text="Matin", width=10, bootstyle="outline-primary",
+            command=lambda: self.set_shift("Matin")
+        )
+        self.soir_button = ttk.Button(
+            shift_buttons, text="Soir", width=10, bootstyle="outline-primary",
+            command=lambda: self.set_shift("Soir")
+        )
+        self.matin_button.pack(side=LEFT, padx=5)
+        self.soir_button.pack(side=LEFT, padx=5)
+
+        self.export_button = ttk.Button(
+            toggle_frame, text="📤 Exporter", width=12, bootstyle="success",
+            command=lambda: export_distribution_from_tab(self)
+        )
+        self.export_button.pack(side=RIGHT)
+
+    def create_input_fields(self, parent):
+        self.input_frame = ttk.LabelFrame(parent, text="Paramètres de distribution", padding=10)
+        self.input_frame.pack(fill=X, pady=(0, 10))
 
         self.fields = {}
         labels = ["Ventes Nettes", "Dépot Net", "Frais Admin", "Cash"]
         for i, label in enumerate(labels):
-            ttk.Label(input_frame, text=label + ":", font=("Helvetica", 10)).grid(row=i, column=0, sticky=W, pady=5)
-            entry = ttk.Entry(input_frame, width=20)
+            ttk.Label(self.input_frame, text=label + ":", font=("Helvetica", 10)).grid(row=i, column=0, sticky=W, pady=5)
+            entry = ttk.Entry(self.input_frame, width=20)
             entry.grid(row=i, column=1, sticky=W, pady=5)
             self.fields[label] = entry
-
             entry.bind("<KeyRelease>", lambda e: self.process())
             entry.bind("<FocusOut>", lambda e: self.process())
 
-        # Summary panels
-        self.create_bussboy_summary_panel(input_frame)
-        self.create_service_summary_panel(input_frame)
-        self.create_depot_summary_panel(input_frame)
+    def create_summary_panels(self, parent):
+        self.create_bussboy_summary_panel(parent)
+        self.create_service_summary_panel(parent)
+        self.create_depot_summary_panel(parent)
 
-        # Treeview
+    def create_distribution_treeview(self, parent):
         self.tree = ttk.Treeview(
-            container,
+            parent,
             columns=("number", "name", "points", "hours", "cash", "sur_paye", "frais_admin"),
             show="headings",
             bootstyle="primary"
@@ -71,7 +107,6 @@ class DistributionTab:
             "cash": "💵 Cash 💵",
             "sur_paye": "Sur paye",
             "frais_admin": "Frais Admin"
-
         }
 
         for col in self.tree["columns"]:
@@ -144,6 +179,16 @@ class DistributionTab:
             text=f"{prefix}: {value:.2f}",
             foreground=color_if_nonzero if value != 0 else self.grey_color
         )
+
+    def update_pay_period_display(self):
+        if not hasattr(self, "pay_period_label"):
+            return
+        try:
+            now = datetime.now()
+            start, end = get_pay_period(now)
+            self.pay_period_label.config(text=f"Période de paye du: {start} au {end}")
+        except Exception:
+            self.pay_period_label.config(text="Période de paye: ❌ date invalide")
 
     def set_shift(self, value):
         self.shift_var.set(value)
@@ -372,6 +417,7 @@ class DistributionTab:
 
         self.tree.delete(*self.tree.get_children())
         self.date_label.config(text=f"Feuille du: {self.selected_date_str}")
+        self.update_pay_period_display()
 
         for entry in organized_data:
             if entry.get("is_section"):

@@ -52,6 +52,7 @@ class TipSplitApp:
             root=self.distribution_frame,
             shared_data=self.shared_data
         )
+        self.shared_data["distribution_tab"] = self.distribution_tab
 
     def authenticate_and_show_master(self):
         password = askstring("🔒 Accès restreint", "Entrez le mot de passe:")

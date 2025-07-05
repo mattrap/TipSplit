@@ -213,6 +213,11 @@ class TimeSheet:
         if self.reload_distribution_data:
             self.reload_distribution_data()
 
+        if "distribution_tab" in self.shared_data:
+            dist_tab = self.shared_data["distribution_tab"]
+            if hasattr(dist_tab, "update_pay_period_display"):
+                dist_tab.update_pay_period_display()
+
     def on_click(self, event):
         region = self.tree.identify("region", event.x, event.y)
         if region != "cell":
