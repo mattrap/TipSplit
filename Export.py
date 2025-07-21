@@ -1,4 +1,8 @@
 from datetime import datetime, timedelta
+from reportlab.lib.units import inch
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
+
 
 def get_pay_period(current_dt):
     known_start = datetime(2025, 6, 8, 6, 0)
@@ -12,34 +16,18 @@ def get_pay_period(current_dt):
 
     return period_start.strftime("%d/%m/%Y"), period_end.strftime("%d/%m/%Y")
 
-def generate_pdf_summary(date, shift, pay_period, fields, entries, output_path, distribution_tab):
-    from reportlab.lib.pagesizes import letter
-    from reportlab.pdfgen import canvas
-    from reportlab.lib.units import inch
-
-    c = canvas.Canvas(output_path, pagesize=letter)
-    width, height = letter
-    y = height - inch
-
-    c.setFont("Helvetica-Bold", 14)
-    c.drawString(50, y, f"Résumé de la distribution — {date} — Shift: {shift}")
-    y -= 20
-    c.setFont("Helvetica", 11)
-    c.drawString(50, y, f"Période de paye: {pay_period[0]} au {pay_period[1]}")
-    y -= 30
-
+def draw_input_section(c, y, fields):
     c.setFont("Helvetica-Bold", 11)
     c.drawString(50, y, "Valeurs entrées:")
     y -= 20
-
     c.setFont("Helvetica", 10)
     for label in ["Ventes Nettes", "Dépot Net", "Frais Admin", "Cash"]:
-        raw = str(fields.get(label, ""))  # Show raw input as-is
+        raw = str(fields.get(label, ""))
         c.drawString(50, y, f"{label:<15}: {raw} $")
         y -= 18
+    return y - 10
 
-    y -= 10
-
+def draw_table_header(c, y):
     c.setFont("Helvetica-Bold", 11)
     c.drawString(50, y, "#")
     c.drawString(90, y, "Nom")
@@ -49,11 +37,11 @@ def generate_pdf_summary(date, shift, pay_period, fields, entries, output_path, 
     c.drawString(490, y, "Frais Admin")
     y -= 15
     c.line(50, y, 550, y)
-    y -= 10
+    return y - 10
 
+def draw_table_body(c, y, entries, height):
     c.setFont("Helvetica", 10)
     total_hours = total_cash = total_sur = total_admin = 0.0
-
     for entry in entries:
         employee_id = entry["employee_id"]
         name = entry["name"]
@@ -82,55 +70,72 @@ def generate_pdf_summary(date, shift, pay_period, fields, entries, output_path, 
             total_cash += float(cash)
             total_sur += float(sur_paye)
             total_admin += float(frais_admin)
-
         y -= 16
+    return y, total_hours, total_cash, total_sur, total_admin
 
-    y -= 10
+def draw_totals(c, y, totals):
+    total_hours, total_cash, total_sur, total_admin = totals
     c.setFont("Helvetica-Bold", 11)
     c.drawString(50, y, "TOTAL")
     c.drawRightString(290, y, f"{total_hours:.2f}")
     c.drawRightString(370, y, f"{total_cash:.2f} $")
     c.drawRightString(460, y, f"{total_sur:.2f} $")
     c.drawRightString(550, y, f"{total_admin:.2f} $")
+    return y - 30
 
-    y -= 30
-
+def draw_distribution_panels(c, y, tab):
     c.setFont("Helvetica-Bold", 11)
     c.drawString(50, y, "Résumé des valeures de distribution:")
     y -= 20
 
-    # SERVICE PANEL
     c.setFont("Helvetica-Bold", 10)
     c.drawString(60, y, "SERVICE")
     y -= 15
     c.setFont("Helvetica", 10)
-    c.drawString(70, y, f"{distribution_tab.service_sur_paye_label.cget('text')}")
+    c.drawString(70, y, tab.service_sur_paye_label.cget("text"))
     y -= 15
-    c.drawString(70, y, f"{distribution_tab.service_admin_fees_label.cget('text')}")
+    c.drawString(70, y, tab.service_admin_fees_label.cget("text"))
     y -= 15
-    c.drawString(70, y, f"{distribution_tab.service_cash_label.cget('text')}")
+    c.drawString(70, y, tab.service_cash_label.cget("text"))
     y -= 25
 
-    # BUSSBOY PANEL
     c.setFont("Helvetica-Bold", 10)
     c.drawString(60, y, "BUSSBOYS")
     y -= 15
     c.setFont("Helvetica", 10)
-    c.drawString(70, y, f"{distribution_tab.bussboy_percentage_label.cget('text')}")
+    c.drawString(70, y, tab.bussboy_percentage_label.cget("text"))
     y -= 15
-    c.drawString(70, y, f"{distribution_tab.bussboy_amount_label.cget('text')}")
+    c.drawString(70, y, tab.bussboy_amount_label.cget("text"))
     y -= 15
-    c.drawString(70, y, f"{distribution_tab.bussboy_sur_paye_label.cget('text')}")
+    c.drawString(70, y, tab.bussboy_sur_paye_label.cget("text"))
     y -= 15
-    c.drawString(70, y, f"{distribution_tab.bussboy_cash_label.cget('text')}")
+    c.drawString(70, y, tab.bussboy_cash_label.cget("text"))
     y -= 25
 
-    # DÉPOT PANEL
     c.setFont("Helvetica-Bold", 10)
     c.drawString(60, y, "DÉPOT")
     y -= 15
     c.setFont("Helvetica", 10)
-    c.drawString(70, y, f"{distribution_tab.service_owes_admin_label.cget('text')}")
+    c.drawString(70, y, tab.service_owes_admin_label.cget("text"))
+    return y
+
+def generate_pdf_summary(date, shift, pay_period, fields, entries, output_path, distribution_tab):
+    c = canvas.Canvas(output_path, pagesize=letter)
+    width, height = letter
+    y = height - inch
+
+    c.setFont("Helvetica-Bold", 14)
+    c.drawString(50, y, f"Résumé de la distribution — {date} — Shift: {shift}")
+    y -= 20
+    c.setFont("Helvetica", 11)
+    c.drawString(50, y, f"Période de paye: {pay_period[0]} au {pay_period[1]}")
+    y -= 30
+
+    y = draw_input_section(c, y, fields)
+    y = draw_table_header(c, y)
+    y, *totals = draw_table_body(c, y, entries, height)
+    y = draw_totals(c, y, totals)
+    draw_distribution_panels(c, y, distribution_tab)
 
     c.save()
 
@@ -156,23 +161,12 @@ def export_distribution_from_tab(distribution_tab):
             print(f"{label}: '{raw_value}'")
 
         entries = []
-
-        # Loop through all rows in the Treeview
         for item in distribution_tab.tree.get_children():
             values = distribution_tab.tree.item(item)["values"]
             name = values[1]
 
-            # Track and skip section headers
-            # include section headers as normal entries
             if name.startswith("---"):
-                entries.append({
-                    "employee_id": "",
-                    "name": name,
-                    "hours": "",
-                    "cash": "",
-                    "sur_paye": "",
-                    "frais_admin": ""
-                })
+                entries.append({"employee_id": "", "name": name, "hours": "", "cash": "", "sur_paye": "", "frais_admin": ""})
                 continue
 
             try:
@@ -181,27 +175,17 @@ def export_distribution_from_tab(distribution_tab):
                         return float(v)
                     except:
                         return 0.0
-
                 employee_id = int(values[0])
                 hours = parse_float(values[3])
                 cash = parse_float(values[4])
                 sur_paye = parse_float(values[5])
                 frais_admin = parse_float(values[6])
-
-                entries.append({
-                    "employee_id": employee_id,
-                    "name": name,
-                    "hours": hours,
-                    "cash": cash,
-                    "sur_paye": sur_paye,
-                    "frais_admin": frais_admin
-                })
+                entries.append({"employee_id": employee_id, "name": name, "hours": hours, "cash": cash, "sur_paye": sur_paye, "frais_admin": frais_admin})
             except (ValueError, IndexError):
                 continue
 
         now = datetime.now()
         pay_period = get_pay_period(now)
-
         pdf_dir = os.path.join("exports", "pdf")
         os.makedirs(pdf_dir, exist_ok=True)
         pdf_path = os.path.join(pdf_dir, f"{date}-{shift}_summary.pdf")
@@ -210,7 +194,7 @@ def export_distribution_from_tab(distribution_tab):
             date=date,
             shift=shift,
             pay_period=pay_period,
-            fields=raw_input_values,  # Use raw (unformatted) inputs for display
+            fields=raw_input_values,
             entries=entries,
             output_path=pdf_path,
             distribution_tab=distribution_tab
