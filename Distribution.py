@@ -208,7 +208,7 @@ class DistributionTab:
     def get_inputs(self):
         def parse_float(value):
             try:
-                return float(value or "0")
+                return float(value.strip().replace(",", "."))
             except ValueError:
                 return 0.0
 
@@ -229,6 +229,7 @@ class DistributionTab:
 
     def distribution_net_values(self, bussboy_amount):
         _, depot_net, frais_admin, cash_initial = self.get_inputs()
+        print(f"[DEBUG] frais_admin: {frais_admin}, cash_initial: {cash_initial}")
 
         if depot_net < 0:
             depot_available = abs(depot_net)

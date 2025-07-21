@@ -28,8 +28,13 @@ def generate_pdf_summary(date, shift, pay_period, fields, entries, output_path, 
     c.drawString(50, y, f"Période de paye: {pay_period[0]} au {pay_period[1]}")
     y -= 30
 
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(50, y, "Valeurs entrées:")
+    y -= 20
+
+    c.setFont("Helvetica", 10)
     for label in ["Ventes Nettes", "Dépot Net", "Frais Admin", "Cash"]:
-        raw = str(fields.get(label, ""))  # Do NOT sanitize or parse
+        raw = str(fields.get(label, ""))  # Show raw input as-is
         c.drawString(50, y, f"{label:<15}: {raw} $")
         y -= 18
 
@@ -142,11 +147,13 @@ def export_distribution_from_tab(distribution_tab):
 
     try:
         distribution_tab.root.update_idletasks()
-        ventes_net, depot_net, frais_admin, cash = distribution_tab.get_inputs()
 
         print("📤 DEBUG - Raw input field values:")
+        raw_input_values = {}
         for label, entry in distribution_tab.fields.items():
-            print(f"{label}: '{entry.get()}'")
+            raw_value = entry.get()
+            raw_input_values[label] = raw_value
+            print(f"{label}: '{raw_value}'")
 
         entries = []
 
@@ -203,15 +210,10 @@ def export_distribution_from_tab(distribution_tab):
             date=date,
             shift=shift,
             pay_period=pay_period,
-            fields={
-                "Ventes Nettes": ventes_net,
-                "Dépot Net": depot_net,
-                "Frais Admin": frais_admin,
-                "Cash": cash
-            },
+            fields=raw_input_values,  # Use raw (unformatted) inputs for display
             entries=entries,
             output_path=pdf_path,
-            distribution_tab=distribution_tab  # ✅ added this
+            distribution_tab=distribution_tab
         )
 
         messagebox.showinfo("Exporté", "PDF généré avec succès.")
