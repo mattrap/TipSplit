@@ -1,8 +1,5 @@
 from datetime import datetime, timedelta
 from reportlab.lib.units import inch
-from reportlab.lib.pagesizes import letter
-from reportlab.pdfgen import canvas
-
 
 def get_pay_period(current_dt):
     known_start = datetime(2025, 6, 8, 6, 0)
@@ -119,7 +116,23 @@ def draw_distribution_panels(c, y, tab):
     c.drawString(70, y, tab.service_owes_admin_label.cget("text"))
     return y
 
+def get_unique_filename(base_path):
+    import os
+    if not os.path.exists(base_path):
+        return base_path
+
+    base, ext = os.path.splitext(base_path)
+    i = 2
+    while True:
+        new_path = f"{base} - ({i}){ext}"
+        if not os.path.exists(new_path):
+            return new_path
+        i += 1
+
 def generate_pdf_summary(date, shift, pay_period, fields, entries, output_path, distribution_tab):
+    from reportlab.lib.pagesizes import letter
+    from reportlab.pdfgen import canvas
+
     c = canvas.Canvas(output_path, pagesize=letter)
     width, height = letter
     y = height - inch
@@ -188,7 +201,8 @@ def export_distribution_from_tab(distribution_tab):
         pay_period = get_pay_period(now)
         pdf_dir = os.path.join("exports", "pdf")
         os.makedirs(pdf_dir, exist_ok=True)
-        pdf_path = os.path.join(pdf_dir, f"{date}-{shift}_summary.pdf")
+        base_pdf_path = os.path.join(pdf_dir, f"{date}-{shift}_distribution.pdf")
+        final_pdf_path = get_unique_filename(base_pdf_path)
 
         generate_pdf_summary(
             date=date,
@@ -196,7 +210,7 @@ def export_distribution_from_tab(distribution_tab):
             pay_period=pay_period,
             fields=raw_input_values,
             entries=entries,
-            output_path=pdf_path,
+            output_path=final_pdf_path,
             distribution_tab=distribution_tab
         )
 
