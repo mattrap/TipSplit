@@ -138,7 +138,7 @@ def generate_pdf_summary(date, shift, pay_period, fields, entries, output_path, 
     y = height - inch
 
     c.setFont("Helvetica-Bold", 14)
-    c.drawString(50, y, f"Résumé de la distribution — {date} — Shift: {shift}")
+    c.drawString(50, y, f"Résumé de la distribution — {date} — {shift}")
     y -= 20
     c.setFont("Helvetica", 11)
     c.drawString(50, y, f"Période de paye: {pay_period[0]} au {pay_period[1]}")
@@ -214,6 +214,6 @@ def export_distribution_from_tab(distribution_tab):
             distribution_tab=distribution_tab
         )
 
-        messagebox.showinfo("Exporté", "PDF généré avec succès.")
+        messagebox.showinfo("Exporté", f"PDF généré avec succès:\n{os.path.basename(final_pdf_path)}")
     except Exception as e:
         messagebox.showerror("Erreur", f"Échec de l'exportation:\n{e}")
