@@ -1,5 +1,8 @@
 from datetime import datetime, timedelta
 from reportlab.lib.units import inch
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
+
 
 def get_pay_period(current_dt):
     known_start = datetime(2025, 6, 8, 6, 0)
@@ -12,109 +15,6 @@ def get_pay_period(current_dt):
     period_end = period_start + timedelta(days=13, hours=23, minutes=59)
 
     return period_start.strftime("%d/%m/%Y"), period_end.strftime("%d/%m/%Y")
-
-def draw_input_section(c, y, fields):
-    c.setFont("Helvetica-Bold", 11)
-    c.drawString(50, y, "Valeurs entrées:")
-    y -= 20
-    c.setFont("Helvetica", 10)
-    for label in ["Ventes Nettes", "Dépot Net", "Frais Admin", "Cash"]:
-        raw = str(fields.get(label, ""))
-        c.drawString(50, y, f"{label:<15}: {raw} $")
-        y -= 18
-    return y - 10
-
-def draw_table_header(c, y):
-    c.setFont("Helvetica-Bold", 11)
-    c.drawString(50, y, "#")
-    c.drawString(90, y, "Nom")
-    c.drawString(250, y, "Heures")
-    c.drawString(320, y, "Cash")
-    c.drawString(400, y, "Sur Paye")
-    c.drawString(490, y, "Frais Admin")
-    y -= 15
-    c.line(50, y, 550, y)
-    return y - 10
-
-def draw_table_body(c, y, entries, height):
-    c.setFont("Helvetica", 10)
-    total_hours = total_cash = total_sur = total_admin = 0.0
-    for entry in entries:
-        employee_id = entry["employee_id"]
-        name = entry["name"]
-        hours = entry["hours"]
-        cash = entry["cash"]
-        sur_paye = entry["sur_paye"]
-        frais_admin = entry["frais_admin"]
-
-        if y < 100:
-            c.showPage()
-            y = height - inch
-
-        if name.startswith("---"):
-            c.setFont("Helvetica-Bold", 11)
-            c.drawString(50, y, name)
-            c.setFont("Helvetica", 10)
-        else:
-            c.drawString(50, y, str(employee_id))
-            c.drawString(90, y, name)
-            c.drawRightString(290, y, f"{float(hours):.2f}")
-            c.drawRightString(370, y, f"{float(cash):.2f} $")
-            c.drawRightString(460, y, f"{float(sur_paye):.2f} $")
-            c.drawRightString(550, y, f"{float(frais_admin):.2f} $")
-
-            total_hours += float(hours)
-            total_cash += float(cash)
-            total_sur += float(sur_paye)
-            total_admin += float(frais_admin)
-        y -= 16
-    return y, total_hours, total_cash, total_sur, total_admin
-
-def draw_totals(c, y, totals):
-    total_hours, total_cash, total_sur, total_admin = totals
-    c.setFont("Helvetica-Bold", 11)
-    c.drawString(50, y, "TOTAL")
-    c.drawRightString(290, y, f"{total_hours:.2f}")
-    c.drawRightString(370, y, f"{total_cash:.2f} $")
-    c.drawRightString(460, y, f"{total_sur:.2f} $")
-    c.drawRightString(550, y, f"{total_admin:.2f} $")
-    return y - 30
-
-def draw_distribution_panels(c, y, tab):
-    c.setFont("Helvetica-Bold", 11)
-    c.drawString(50, y, "Résumé des valeures de distribution:")
-    y -= 20
-
-    c.setFont("Helvetica-Bold", 10)
-    c.drawString(60, y, "SERVICE")
-    y -= 15
-    c.setFont("Helvetica", 10)
-    c.drawString(70, y, tab.service_sur_paye_label.cget("text"))
-    y -= 15
-    c.drawString(70, y, tab.service_admin_fees_label.cget("text"))
-    y -= 15
-    c.drawString(70, y, tab.service_cash_label.cget("text"))
-    y -= 25
-
-    c.setFont("Helvetica-Bold", 10)
-    c.drawString(60, y, "BUSSBOYS")
-    y -= 15
-    c.setFont("Helvetica", 10)
-    c.drawString(70, y, tab.bussboy_percentage_label.cget("text"))
-    y -= 15
-    c.drawString(70, y, tab.bussboy_amount_label.cget("text"))
-    y -= 15
-    c.drawString(70, y, tab.bussboy_sur_paye_label.cget("text"))
-    y -= 15
-    c.drawString(70, y, tab.bussboy_cash_label.cget("text"))
-    y -= 25
-
-    c.setFont("Helvetica-Bold", 10)
-    c.drawString(60, y, "DÉPOT")
-    y -= 15
-    c.setFont("Helvetica", 10)
-    c.drawString(70, y, tab.service_owes_admin_label.cget("text"))
-    return y
 
 def get_unique_filename(base_path):
     import os
@@ -130,8 +30,110 @@ def get_unique_filename(base_path):
         i += 1
 
 def generate_pdf_summary(date, shift, pay_period, fields, entries, output_path, distribution_tab):
-    from reportlab.lib.pagesizes import letter
-    from reportlab.pdfgen import canvas
+
+
+    def draw_input_section(c, y):
+        c.setFont("Helvetica-Bold", 11)
+        c.drawString(50, y, "Valeurs entrées:")
+        y -= 20
+        c.setFont("Helvetica", 10)
+        for label in ["Ventes Nettes", "Dépot Net", "Frais Admin", "Cash"]:
+            raw = str(fields.get(label, ""))
+            c.drawString(50, y, f"{label:<15}: {raw} $")
+            y -= 18
+        return y - 10
+
+    def draw_table_header(c, y):
+        c.setFont("Helvetica-Bold", 11)
+        c.drawString(50, y, "#")
+        c.drawString(90, y, "Nom")
+        c.drawString(250, y, "Heures")
+        c.drawString(320, y, "Cash")
+        c.drawString(400, y, "Sur Paye")
+        c.drawString(490, y, "Frais Admin")
+        y -= 15
+        c.line(50, y, 550, y)
+        return y - 10
+
+    def draw_table_body(c, y, entries, height):
+        c.setFont("Helvetica", 10)
+        total_hours = total_cash = total_sur = total_admin = 0.0
+        for entry in entries:
+            employee_id = entry["employee_id"]
+            name = entry["name"]
+            hours = entry["hours"]
+            cash = entry["cash"]
+            sur_paye = entry["sur_paye"]
+            frais_admin = entry["frais_admin"]
+
+            if y < 100:
+                c.showPage()
+                y = height - inch
+
+            if name.startswith("---"):
+                c.setFont("Helvetica-Bold", 11)
+                c.drawString(50, y, name)
+                c.setFont("Helvetica", 10)
+            else:
+                c.drawString(50, y, str(employee_id))
+                c.drawString(90, y, name)
+                c.drawRightString(290, y, f"{float(hours):.2f}")
+                c.drawRightString(370, y, f"{float(cash):.2f} $")
+                c.drawRightString(460, y, f"{float(sur_paye):.2f} $")
+                c.drawRightString(550, y, f"{float(frais_admin):.2f} $")
+
+                total_hours += float(hours)
+                total_cash += float(cash)
+                total_sur += float(sur_paye)
+                total_admin += float(frais_admin)
+            y -= 16
+        return y, total_hours, total_cash, total_sur, total_admin
+
+    def draw_totals(c, y, totals):
+        total_hours, total_cash, total_sur, total_admin = totals
+        c.setFont("Helvetica-Bold", 11)
+        c.drawString(50, y, "TOTAL")
+        c.drawRightString(290, y, f"{total_hours:.2f}")
+        c.drawRightString(370, y, f"{total_cash:.2f} $")
+        c.drawRightString(460, y, f"{total_sur:.2f} $")
+        c.drawRightString(550, y, f"{total_admin:.2f} $")
+        return y - 30
+
+    def draw_distribution_panels(c, y):
+        c.setFont("Helvetica-Bold", 11)
+        c.drawString(50, y, "Résumé des valeures de distribution:")
+        y -= 20
+
+        c.setFont("Helvetica-Bold", 10)
+        c.drawString(60, y, "SERVICE")
+        y -= 15
+        c.setFont("Helvetica", 10)
+        c.drawString(70, y, distribution_tab.service_sur_paye_label.cget("text"))
+        y -= 15
+        c.drawString(70, y, distribution_tab.service_admin_fees_label.cget("text"))
+        y -= 15
+        c.drawString(70, y, distribution_tab.service_cash_label.cget("text"))
+        y -= 25
+
+        c.setFont("Helvetica-Bold", 10)
+        c.drawString(60, y, "BUSSBOYS")
+        y -= 15
+        c.setFont("Helvetica", 10)
+        c.drawString(70, y, distribution_tab.bussboy_percentage_label.cget("text"))
+        y -= 15
+        c.drawString(70, y, distribution_tab.bussboy_amount_label.cget("text"))
+        y -= 15
+        c.drawString(70, y, distribution_tab.bussboy_sur_paye_label.cget("text"))
+        y -= 15
+        c.drawString(70, y, distribution_tab.bussboy_cash_label.cget("text"))
+        y -= 25
+
+        c.setFont("Helvetica-Bold", 10)
+        c.drawString(60, y, "DÉPOT")
+        y -= 15
+        c.setFont("Helvetica", 10)
+        c.drawString(70, y, distribution_tab.service_owes_admin_label.cget("text"))
+        return y
 
     c = canvas.Canvas(output_path, pagesize=letter)
     width, height = letter
@@ -144,11 +146,11 @@ def generate_pdf_summary(date, shift, pay_period, fields, entries, output_path, 
     c.drawString(50, y, f"Période de paye: {pay_period[0]} au {pay_period[1]}")
     y -= 30
 
-    y = draw_input_section(c, y, fields)
+    y = draw_input_section(c, y)
     y = draw_table_header(c, y)
     y, *totals = draw_table_body(c, y, entries, height)
     y = draw_totals(c, y, totals)
-    draw_distribution_panels(c, y, distribution_tab)
+    draw_distribution_panels(c, y)
 
     c.save()
 
