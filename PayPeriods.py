@@ -109,27 +109,22 @@ pay_periods = {
 }
 
 def get_period_from_date(date: datetime) -> tuple[str, dict] | tuple[None, None]:
-    """
-    Given a datetime, returns the pay period key and its data.
-    Returns (None, None) if not found.
-    """
     for key, data in pay_periods.items():
         start_str, end_str = data["range"].split(" - ")
-        start = datetime.strptime(start_str, "%d-%m-%Y")
-        end = datetime.strptime(end_str, "%d-%m-%Y")
+        start = datetime.strptime(start_str, "%d/%m/%Y")
+        end = datetime.strptime(end_str, "%d/%m/%Y")
         if start <= date <= end:
             return key, data
     return None, None
 
 def get_selected_period(selected_dt):
-    """
-    Given a datetime object, returns the pay period key and its data where the date lies.
-    """
     for key, period in pay_periods.items():
         start_str, end_str = period["range"].split(" - ")
-        start = datetime.strptime(start_str, "%d-%m-%Y")
-        end = datetime.strptime(end_str, "%d-%m-%Y")
+        start = datetime.strptime(start_str, "%d/%m/%Y")
+        end = datetime.strptime(end_str, "%d/%m/%Y")
         if start <= selected_dt <= end:
             return key, period
     return None, None
+    # returns ('2025_14', {'range': '06/07/2025 - 19/07/2025', 'deposit': '24/07/2025'})
+
 
