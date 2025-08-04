@@ -1,6 +1,6 @@
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
-from Export import get_pay_period
+from PayPeriods import get_selected_period
 from Export import export_distribution_from_tab
 from datetime import datetime
 
@@ -183,12 +183,20 @@ class DistributionTab:
     def update_pay_period_display(self):
         if not hasattr(self, "pay_period_label"):
             return
-        try:
-            now = datetime.now()
-            start, end = get_pay_period(now)
-            self.pay_period_label.config(text=f"Période de paye du: {start} au {end}")
-        except Exception:
+
+        if not self.selected_date_str:
             self.pay_period_label.config(text="Période de paye: ❌ date invalide")
+            return
+
+        try:
+            selected_dt = datetime.strptime(self.selected_date_str, "%d-%m-%Y")
+            period_key, period_data = get_selected_period(selected_dt)
+            if period_data:
+                self.pay_period_label.config(text=f"Période de paye du: {period_data['range']}")
+            else:
+                self.pay_period_label.config(text="Période de paye: ❌ hors plage")
+        except Exception:
+            self.pay_period_label.config(text="Période de paye: ❌ erreur de date")
 
     def set_shift(self, value):
         self.shift_var.set(value)
@@ -229,7 +237,6 @@ class DistributionTab:
 
     def distribution_net_values(self, bussboy_amount):
         _, depot_net, frais_admin, cash_initial = self.get_inputs()
-        print(f"[DEBUG] frais_admin: {frais_admin}, cash_initial: {cash_initial}")
 
         if depot_net < 0:
             depot_available = abs(depot_net)
