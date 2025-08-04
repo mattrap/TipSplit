@@ -29,19 +29,8 @@ class TimeSheet:
         header_frame = ttk.Frame(content)
         header_frame.pack(fill=X, pady=(0, 10))
 
-        ttk.Label(header_frame, text="Remplir les heures du:", font=("Helvetica", 16, "bold")).pack(side=LEFT)
-        self.date_picker = DateEntry(header_frame, bootstyle="primary", dateformat="%d-%B-%Y-%A", width=20)
-        self.date_picker.entry.bind("<Key>", lambda e: "break")  # block manual typing
-        self.date_picker.pack(side=LEFT, padx=(10, 0))
-
-        confirm_btn = ttk.Button(
-            header_frame,
-            text="Confirmer",
-            bootstyle="success-outline",
-            command=self.export_filled_rows
-        )
-        confirm_btn.pack(side=RIGHT)
-        self.date_picker.entry.delete(0, END)
+        self.create_date_picker(header_frame)
+        self.create_confirm_button(header_frame)
 
         self.status_label = ttk.Label(header_frame, text="", font=("Helvetica", 10))
         self.status_label.pack(side=LEFT, padx=10)
@@ -90,6 +79,25 @@ class TimeSheet:
         self.tree.bind("<Motion>", self.on_hover)
 
         self.reload()
+
+    def create_date_picker(self, parent):
+        ttk.Label(parent, text="Remplir les heures du:", font=("Helvetica", 16, "bold")).pack(side=LEFT)
+
+        self.date_picker = DateEntry(parent, bootstyle="primary", dateformat="%d-%m-%Y", width=20)
+        self.date_picker.entry.bind("<Key>", lambda e: "break")  # block manual typing
+        self.date_picker.pack(side=LEFT, padx=(10, 0))
+
+        # Reset field to blank on startup
+        self.date_picker.entry.delete(0, END)
+
+    def create_confirm_button(self, parent):
+        confirm_btn = ttk.Button(
+            parent,
+            text="Confirmer",
+            bootstyle="success-outline",
+            command=self.export_filled_rows
+        )
+        confirm_btn.pack(side=RIGHT)
 
     def load_data_file(self, filename):
         if os.path.exists(filename):
