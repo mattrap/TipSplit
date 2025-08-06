@@ -7,16 +7,18 @@ def create_menu_bar(root, app):
     menu_bar = ttk.Frame(root, padding=(10, 5))
     menu_bar.pack(fill=X, side=TOP, before=root.winfo_children()[0])
 
-    # Open menu
-    open_button = ttk.Menubutton(menu_bar, text="Open")
+    # Open menu (first button)
+    open_button = ttk.Menubutton(menu_bar, text="Ouvrir")
     open_menu = ttk.Menu(open_button)
-    open_menu.add_command(label="Master Sheet", command=app.authenticate_and_show_master)
+
+    open_menu.add_command(label="Feuille d'employés", command=app.authenticate_and_show_master)
+    open_menu.add_command(label="Modification de distribution", command=app.show_json_viewer_tab)
 
     open_button["menu"] = open_menu
     open_button.pack(side=LEFT, padx=5)
 
     # Settings menu
-    settings_button = ttk.Menubutton(menu_bar, text="Settings")
+    settings_button = ttk.Menubutton(menu_bar, text="Réglages")
     settings_menu = ttk.Menu(settings_button)
     settings_menu.add_command(label="Preferences", command=lambda: None)
     settings_button["menu"] = settings_menu

@@ -66,6 +66,16 @@ class TipSplitApp:
             self.notebook.add(self.master_frame, text="Master Sheet")
         self.notebook.select(self.master_frame)
 
+    def show_json_viewer_tab(self):
+        if not hasattr(self, "json_viewer_tab"):
+            from JsonViewerTab import JsonViewerTab
+            self.json_viewer_frame = ttk.Frame(self.notebook)
+            self.json_viewer_tab = JsonViewerTab(self.json_viewer_frame)
+            self.notebook.add(self.json_viewer_frame, text="Modifier la distribution")
+        elif str(self.json_viewer_frame) not in self.notebook.tabs():
+            self.notebook.add(self.json_viewer_frame, text="Modifier la distribution")
+        self.notebook.select(self.json_viewer_frame)
+
     def reload_distribution_tab(self):
         if hasattr(self, "distribution_tab"):
             self.distribution_tab.load_day_sheet_data()
