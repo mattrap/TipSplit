@@ -89,3 +89,5 @@ if __name__ == "__main__":
     app_root.state('zoomed')
     app = TipSplitApp(app_root)
     app_root.mainloop()
+
+print("hello")
