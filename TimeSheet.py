@@ -35,12 +35,26 @@ class TimeSheet:
         self.status_label = ttk.Label(header_frame, text="", font=("Helvetica", 10))
         self.status_label.pack(side=LEFT, padx=10)
 
+        # --- Taller rows style (added) ---
+        style = ttk.Style()
+        style.configure(
+            "Custom.Treeview",
+            font=("Helvetica", 14),  # bigger text
+            rowheight=35             # taller rows
+        )
+        style.configure(
+            "Custom.Treeview.Heading",
+            font=("Helvetica", 14, "bold")
+        )
+        # ---------------------------------
+
         # Treeview
         self.tree = ttk.Treeview(
             content,
             columns=("number", "name", "points", "punch", "in", "out", "total"),
             show="headings",
-            bootstyle="primary"
+            bootstyle="primary",
+            style="Custom.Treeview"  # applied taller row style
         )
         self.tree.configure(selectmode="none")
 
@@ -173,7 +187,7 @@ class TimeSheet:
             return
 
         try:
-            datetime.strptime(date_str, self.date_picker._dateformat)
+            datetime.strptime(date_str, self.date_picker.dateformat)
         except ValueError:
             self.flash_date_field()
             self.status_label.config(text="⛔ Format de date invalide!", foreground="#B22222")
@@ -382,5 +396,3 @@ class TimeSheet:
             self.root.after(delay // steps, lambda: step_fade(step + 1))
 
         self.root.after(delay, step_fade)
-
-

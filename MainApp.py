@@ -90,4 +90,3 @@ if __name__ == "__main__":
     app = TipSplitApp(app_root)
     app_root.mainloop()
 
-print("hello")
