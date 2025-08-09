@@ -86,7 +86,12 @@ class TipSplitApp:
 
 if __name__ == "__main__":
     app_root = ttk.Window(themename="flatly")
-    app_root.state('zoomed')
+    try:
+        app_root.state('zoomed')  # Works on Windows/Linux
+    except:
+        pass
+    app_root.attributes('-fullscreen', True)  # Works on macOS (and also full-screen on others)
     app = TipSplitApp(app_root)
     app_root.mainloop()
+
 

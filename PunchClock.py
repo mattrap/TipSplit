@@ -20,7 +20,8 @@ class PunchClockPopup:
         self.selected_minute_btn = None
 
         self.window = Toplevel(master)
-        self.window.title("Sélectionner les heures")
+        employee_selected = master.item(row_id, "values")[1]  # column 1 is the name
+        self.window.title(f"Sélectionner les heures pour     {employee_selected}")
         self.window.grab_set()
         self.window.resizable(False, False)
         self.window.geometry("600x400")
@@ -29,11 +30,11 @@ class PunchClockPopup:
         self.main_frame.pack(fill=BOTH, expand=True)
 
         self.label_start = ttk.Label(self.main_frame, text="Heure d'entrée: ",
-                                     font=("Helvetica", 12, "bold"), bootstyle="primary")
+                                     font=("Helvetica", 16, "bold"), bootstyle="primary")
         self.label_start.pack(pady=(5, 2))
 
         self.label_end = ttk.Label(self.main_frame, text="Heure de sortie: ",
-                                   font=("Helvetica", 12, "bold"), bootstyle="primary")
+                                   font=("Helvetica", 16, "bold"), bootstyle="primary")
         self.label_end.pack(pady=(0, 10))
 
         self.hour_frame = ttk.Frame(self.main_frame)
