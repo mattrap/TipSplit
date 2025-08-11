@@ -84,9 +84,9 @@ class TimeSheet:
 
         self.tree.pack(fill=BOTH, expand=True)
 
-        self.tree.tag_configure("section", font=("Helvetica", 12, "bold"), background="#b4c7af") #dark green
+        self.tree.tag_configure("section", font=("Helvetica", 16, "bold"), background="#b4c7af") #dark green
         self.tree.tag_configure("hover", background="#e0f7fa")
-        self.tree.tag_configure("total", font=("Helvetica", 10, "bold"), background="#e8f5e9") # light green
+        self.tree.tag_configure("total", font=("Helvetica", 14, "bold"), background="#e8f5e9") # light green
         self.tree.tag_configure("filled", background="#d8eff0")  # after data entered
 
         self.tree.bind("<Button-1>", self.on_click)

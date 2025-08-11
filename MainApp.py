@@ -86,12 +86,23 @@ class TipSplitApp:
 
 if __name__ == "__main__":
     app_root = ttk.Window(themename="flatly")
-    try:
-        app_root.state('zoomed')  # Works on Windows/Linux
-    except:
-        pass
-    app_root.attributes('-fullscreen', True)  # Works on macOS (and also full-screen on others)
     app = TipSplitApp(app_root)
+
+    def fit_to_screen(win):
+        # Windows/Linux: maximize
+        if win.tk.call('tk', 'windowingsystem') in ('x11', 'win32'):
+            try:
+                win.state('zoomed')
+                return
+            except:
+                pass
+
+        # macOS: fill the whole screen (no margins), not fullscreen
+        if win.tk.call('tk', 'windowingsystem') == 'aqua':
+            win.update_idletasks()  # ensure correct screen metrics
+            sw = win.winfo_screenwidth()
+            sh = win.winfo_screenheight()
+            win.geometry(f"{sw}x{sh}+0+0")
+
+    app_root.after(0, lambda: fit_to_screen(app_root))
     app_root.mainloop()
-
-
