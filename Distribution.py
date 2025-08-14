@@ -139,7 +139,7 @@ class DistributionTab:
     def create_summary_panels(self, parent):
         self.create_bussboy_summary_panel(parent)
         self.create_service_summary_panel(parent)
-        self.create_depot_summary_panel(parent)
+        self.create_depots_summary_pannel(parent)
         self.create_declaration_summary_panel(parent)
 
     def create_distribution_treeview(self, parent):
@@ -228,18 +228,50 @@ class DistributionTab:
         self.service_cash_label = ttk.Label(service_frame, text="Cash: 0.00 $", font=("Helvetica", 11, "bold"), foreground=self.cash_color)
         self.service_cash_label.pack(anchor=W, pady=(2, 2))
 
-    def create_depot_summary_panel(self, parent):
+    def create_depots_summary_pannel(self, parent):
+        # One wrapper in column 4 that holds both panels stacked
         depot_wrapper = ttk.Frame(parent)
-        depot_wrapper.grid(row=0, column=4, rowspan=4, padx=(20, 0), sticky=N)
+        depot_wrapper.grid(row=0, column=4, padx=(20, 0), sticky=N)
 
-        title_label = ttk.Label(depot_wrapper, text="DÉPOT", font=("Helvetica", 11, "bold"))
-        title_label.pack(anchor=CENTER, pady=(0, 5))
+        # ---------- Admin Panel ----------
+        admin_title = ttk.Label(
+            depot_wrapper,
+            text="DÉPOT ADMINISTRATION",
+            font=("Helvetica", 11, "bold")
+        )
+        admin_title.pack(anchor=CENTER, pady=(0, 5))
 
-        depot_frame = ttk.Frame(depot_wrapper, padding=(10, 5), relief="groove", borderwidth=2)
-        depot_frame.pack(fill=X)
+        admin_frame = ttk.Frame(depot_wrapper, padding=(10, 5), relief="groove", borderwidth=2)
+        admin_frame.pack(fill=X)
 
-        self.service_owes_admin_label = ttk.Label(depot_frame, text="À remettre: 0.00 $", font=("Helvetica", 11, "bold"), foreground="#dc3545")
+        self.service_owes_admin_label = ttk.Label(
+            admin_frame,
+            text="À remettre: 0.00 $",
+            font=("Helvetica", 11, "bold"),
+            foreground="#dc3545"
+        )
         self.service_owes_admin_label.pack(anchor=W, pady=(5, 2))
+
+        # ---------- Cuisine Panel (immediately under Admin) ----------
+        cuisine_title = ttk.Label(
+            depot_wrapper,
+            text="DÉPOT CUISINE",
+            font=("Helvetica", 11, "bold")
+        )
+        cuisine_title.pack(anchor=CENTER, pady=(10, 5))  # small gap to keep it close
+
+        cuisine_frame = ttk.Frame(depot_wrapper, padding=(10, 5), relief="groove", borderwidth=2)
+        cuisine_frame.pack(fill=X)
+
+        self.service_owes_cuisine_label = ttk.Label(
+            cuisine_frame,
+            text="À remettre: 0.00 $",
+            font=("Helvetica", 11, "bold"),
+            foreground="#dc3545"
+        )
+        self.service_owes_cuisine_label.pack(anchor=W, pady=(5, 2))
+
+        return depot_wrapper
 
     def create_declaration_summary_panel(self, parent):
         decl_wrapper = ttk.Frame(parent)

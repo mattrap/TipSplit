@@ -6,6 +6,8 @@ from TimeSheet import TimeSheet
 from Distribution import DistributionTab
 from tkinter.simpledialog import askstring
 from tkinter import messagebox
+from Pay import PayTab
+
 
 class TipSplitApp:
     def __init__(self, root):
@@ -21,6 +23,7 @@ class TipSplitApp:
         self.create_master_tab()
         self.create_timesheet_tab()
         self.create_distribution_tab()
+        self.create_pay_tab()
 
         create_menu_bar(self.root, self)
 
@@ -53,6 +56,12 @@ class TipSplitApp:
             shared_data=self.shared_data
         )
         self.shared_data["distribution_tab"] = self.distribution_tab
+
+
+    def create_pay_tab(self):
+        self.pay_frame = ttk.Frame(self.notebook)
+        self.notebook.add(self.pay_frame, text="Pay")
+        self.pay_tab = PayTab(self.pay_frame)
 
     def authenticate_and_show_master(self):
         password = askstring("🔒 Accès restreint", "Entrez le mot de passe:")

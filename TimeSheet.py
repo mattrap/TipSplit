@@ -9,7 +9,6 @@ import os
 
 SERVICE_FILE = "service_employees.json"
 BUSSBOY_FILE = "bussboy_employees.json"
-EXPORT_FILE = "DaySheet.json"
 
 class TimeSheet:
     def __init__(self, root, shared_data=None, reload_distribution_data=None):

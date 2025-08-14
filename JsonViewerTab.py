@@ -1,5 +1,7 @@
 import os
 import json
+import glob
+import datetime as _dt
 import ttkbootstrap as ttk
 from tkinter import filedialog, messagebox
 from tkinter import StringVar, END, Listbox, Text
@@ -10,11 +12,29 @@ class JsonViewerTab:
         self.master = master
         self.frame = ttk.Frame(master)
 
+        # UI state
         self.pay_period_var = StringVar()
         self.json_file_var = StringVar()
         self.current_file_path = None
-
         self.view_mode = StringVar(value="distribution")
+
+        # --- Export folder structure ---
+        self.exports_root = "exports"
+        self.export_folders = {
+            "pdf": os.path.join(self.exports_root, "pdf"),
+            "json": os.path.join(self.exports_root, "json"),
+            "pay": os.path.join(self.exports_root, "pay"),
+        }
+        for p in self.export_folders.values():
+            os.makedirs(p, exist_ok=True)
+
+        # Base directory where pay-period folders live (each pay period is a subfolder here)
+        self.base_dir = self.export_folders["json"]
+
+        # Map pay-period label -> absolute path
+        self.period_paths = {}
+        # The absolute path of the currently selected pay-period folder
+        self.current_period_path = None
 
         self._build_ui()
         self.refresh_pay_periods()
@@ -31,14 +51,21 @@ class JsonViewerTab:
         self.period_menu.bind("<<ComboboxSelected>>", self.on_period_select)
 
         ttk.Button(header_frame, text="Rafraîchir", command=self.refresh_pay_periods).pack(side=LEFT, padx=5)
+        ttk.Button(header_frame, text="Créer fichier combiné", command=self.on_create_combined_file).pack(
+            side=LEFT, padx=5
+        )
 
         # View toggle (right side)
         view_frame = ttk.Frame(header_frame)
         view_frame.pack(side=RIGHT)
-        self.view_dist_btn = ttk.Button(view_frame, text="Vue Distribution", bootstyle="primary",
-                                        command=lambda: self.set_view_mode("distribution"))
-        self.view_decl_btn = ttk.Button(view_frame, text="Vue Déclaration", bootstyle="outline-primary",
-                                        command=lambda: self.set_view_mode("declaration"))
+        self.view_dist_btn = ttk.Button(
+            view_frame, text="Vue Distribution", bootstyle="primary",
+            command=lambda: self.set_view_mode("distribution")
+        )
+        self.view_decl_btn = ttk.Button(
+            view_frame, text="Vue Déclaration", bootstyle="outline-primary",
+            command=lambda: self.set_view_mode("declaration")
+        )
         self.view_dist_btn.pack(side=LEFT)
         self.view_decl_btn.pack(side=LEFT, padx=6)
 
@@ -100,9 +127,14 @@ class JsonViewerTab:
         # Action buttons
         button_frame = ttk.Frame(self.frame)
         button_frame.pack(pady=10)
-        ttk.Button(button_frame, text="Supprimer cette distribution", bootstyle=DANGER,
-                   command=self.delete_selected_file).pack(side=LEFT, padx=5)
+        ttk.Button(
+            button_frame, text="Supprimer cette distribution", bootstyle=DANGER,
+            command=self.delete_selected_file
+        ).pack(side=LEFT, padx=5)
 
+    # -----------------------
+    # View switching
+    # -----------------------
     def show_distribution_view(self):
         self.tree["displaycolumns"] = ("id", "name", "hours", "cash", "sur_paye", "frais_admin", "section")
         self.view_mode.set("distribution")
@@ -121,42 +153,73 @@ class JsonViewerTab:
         else:
             self.show_distribution_view()
 
+    # -----------------------
+    # Pay period loading
+    # -----------------------
     def refresh_pay_periods(self):
-        base_dir = os.path.join("exports", "json")
-        if not os.path.exists(base_dir):
-            os.makedirs(base_dir)
+        # Ensure base directory exists
+        os.makedirs(self.base_dir, exist_ok=True)
 
-        periods = sorted([name for name in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, name))])
+        # Discover pay-period folders and build label->path map
+        self.period_paths = {}
+        periods = []
+        try:
+            for name in os.listdir(self.base_dir):
+                full_path = os.path.join(self.base_dir, name)
+                if os.path.isdir(full_path):
+                    periods.append(name)
+                    self.period_paths[name] = full_path
+        except FileNotFoundError:
+            pass
+
+        periods = sorted(periods)
         self.period_menu["values"] = periods
 
-        if periods:
+        # Preserve selection if possible, otherwise select first available
+        current = (self.pay_period_var.get() or "").strip()
+        if current in periods:
+            self.pay_period_var.set(current)
+        elif periods:
             self.pay_period_var.set(periods[0])
-            self.on_period_select()
         else:
             self.pay_period_var.set("")
-            self.file_listbox.delete(0, END)
-            self.clear_treeviews()
+
+        # Trigger list refresh
+        self.on_period_select()
 
     def on_period_select(self, event=None):
         self.file_listbox.delete(0, END)
         self.clear_treeviews()
 
-        selected_period = self.pay_period_var.get()
-        if not selected_period:
+        label = (self.pay_period_var.get() or "").strip()
+        if not label:
+            self.current_period_path = None
             return
 
-        folder_path = os.path.join("exports", "json", selected_period)
+        folder_path = self.period_paths.get(label) or os.path.join(self.base_dir, label)
+        self.current_period_path = folder_path  # cache for later actions
+
+        if not os.path.isdir(folder_path):
+            return
+
         json_files = [f for f in os.listdir(folder_path) if f.endswith(".json")]
         for f in sorted(json_files):
             self.file_listbox.insert(END, f)
 
+    # -----------------------
+    # File selection & display
+    # -----------------------
     def on_file_select(self, event):
         selection = self.file_listbox.curselection()
         if not selection:
             return
 
         selected_file = self.file_listbox.get(selection[0])
-        self.current_file_path = os.path.join("exports", "json", self.pay_period_var.get(), selected_file)
+        if not self.current_period_path:
+            messagebox.showerror("Erreur", "Aucun dossier de période sélectionné.")
+            return
+
+        self.current_file_path = os.path.join(self.current_period_path, selected_file)
 
         try:
             with open(self.current_file_path, "r", encoding="utf-8") as f:
@@ -181,11 +244,9 @@ class JsonViewerTab:
 
             # Employees rows (supports both views)
             for emp in content.get("employees", []):
-                # Skip if it's a malformed object
                 if not isinstance(emp, dict):
                     continue
 
-                # Numbers or blanks for declaration fields
                 def _fmt(x):
                     return "" if x in ("", None) else x
 
@@ -219,14 +280,19 @@ class JsonViewerTab:
         for item in self.tree.get_children():
             self.tree.delete(item)
 
+    # -----------------------
+    # Delete action
+    # -----------------------
     def delete_selected_file(self):
         if not self.current_file_path:
             messagebox.showwarning("Aucun fichier sélectionné", "Veuillez d'abord sélectionner une distribution.")
             return
 
         file_name = os.path.basename(self.current_file_path)
-        confirm = messagebox.askyesno("Confirmer la suppression",
-                                      f"Êtes-vous sûr de vouloir supprimer '{file_name}' ?")
+        confirm = messagebox.askyesno(
+            "Confirmer la suppression",
+            f"Êtes-vous sûr de vouloir supprimer '{file_name}' ?"
+        )
         if confirm:
             try:
                 os.remove(self.current_file_path)
@@ -236,3 +302,109 @@ class JsonViewerTab:
                 self.clear_treeviews()
             except Exception as e:
                 messagebox.showerror("Erreur", f"Échec de la suppression:\n{str(e)}")
+
+    # -----------------------
+    # Helpers for period info
+    # -----------------------
+    def _resolve_selected_pay_period_label(self) -> str:
+        """Return the currently selected pay period label from the combobox."""
+        return (self.pay_period_var.get() or "").strip()
+
+    def _resolve_selected_pay_period_path(self) -> str:
+        """
+        Resolve the selected pay period folder using the label->path map.
+        """
+        label = self._resolve_selected_pay_period_label()
+        if not label:
+            raise RuntimeError("Aucune période sélectionnée.")
+
+        # Prefer the cached path set by on_period_select
+        if self.current_period_path:
+            return self.current_period_path
+
+        # Fall back to the map or base_dir + label
+        path = self.period_paths.get(label) or os.path.join(self.base_dir, label)
+        if not os.path.isdir(path):
+            raise FileNotFoundError(f"Dossier introuvable: {path}")
+        return path
+
+    # -----------------------
+    # Combine action
+    # -----------------------
+    def on_create_combined_file(self):
+        """
+        Handler for the 'Créer fichier combiné' button.
+        Creates exports/json/{pay_period}.Json containing all *.json distributions from the selected period folder.
+        """
+        period_label = self._resolve_selected_pay_period_label()
+        if not period_label:
+            messagebox.showerror("Erreur", "Veuillez sélectionner une période de paye.")
+            return
+
+        try:
+            pay_period_path = self._resolve_selected_pay_period_path()
+        except Exception as e:
+            messagebox.showerror("Erreur", f"Impossible de localiser le dossier de la période:\n{e}")
+            return
+
+        try:
+            out_path = self._combine_all_jsons_in_period(pay_period_path, period_label)
+            messagebox.showinfo("Succès", f"Fichier combiné créé:\n{out_path}")
+            # Refresh the list (combined file is saved in exports/json root, not in the period folder)
+            self.on_period_select(None)
+        except Exception as e:
+            messagebox.showerror("Erreur", f"Échec de la création du fichier combiné:\n{e}")
+
+    def _combine_all_jsons_in_period(self, pay_period_path: str, pay_period_label: str) -> str:
+        """
+        Combine every *.json file in the pay period folder into a single JSON file named
+        'exports/json/{pay_period_label}.Json'. The result contains a list of distributions with their
+        original filename and parsed content (or an 'error' field if parsing fails).
+
+        Returns the output file path.
+        """
+        if not os.path.isdir(pay_period_path):
+            raise FileNotFoundError(f"Dossier introuvable: {pay_period_path}")
+
+        # Output file is placed in the exports/json root (NOT inside the period folder)
+        out_name = f"{pay_period_label}.Json"
+        out_path = os.path.join(self.export_folders["pay"], out_name)
+
+        # Gather candidates from the selected pay-period folder
+        all_jsons = sorted(
+            p for p in glob.glob(os.path.join(pay_period_path, "*.json"))
+            if os.path.isfile(p)
+        )
+
+        # Exclude known aggregate/final files if they happen to be inside the folder
+        excluded_names = {
+            os.path.basename(out_path),               # if a file with same name exists in this folder (unlikely now)
+            f"{pay_period_label}_pay_data.json"       # your final-pay JSON, if present
+        }
+
+        jsons_to_merge = [p for p in all_jsons if os.path.basename(p) not in excluded_names]
+
+        combined = {
+            "pay_period": pay_period_label,
+            "created_at": _dt.datetime.now().isoformat(timespec="seconds"),
+            "num_files": len(jsons_to_merge),
+            "distributions": []
+        }
+
+        for p in jsons_to_merge:
+            entry = {"filename": os.path.basename(p)}
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    entry["content"] = json.load(f)
+            except Exception as e:
+                # Record the problem and continue
+                entry["error"] = f"{type(e).__name__}: {e}"
+            combined["distributions"].append(entry)
+
+        # Atomic write
+        tmp = out_path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(combined, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, out_path)
+
+        return out_path
