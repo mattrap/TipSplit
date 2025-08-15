@@ -6,6 +6,7 @@
 #   * For Service employees -> columns: A, B, E, F
 #   * For Busboys         -> columns: D
 #   * Badge shows which rule determined "Déclaré" (8% of A vs F for Service; D for Busboy)
+#   * Far-right header buttons: "Exporter tous (PDF)" and "Créer livret (PDF)"
 
 import os
 import json
@@ -49,12 +50,23 @@ class PayTab:
         header = ttk.Frame(self.frame)
         header.pack(fill=X, padx=10, pady=(10, 6))
 
-        ttk.Label(header, text="Fichier combiné (exports/pay):").pack(side=LEFT)
-        self.pay_file_menu = ttk.Combobox(header, textvariable=self.selected_payfile_var, state="readonly", width=44)
+        # LEFT side of header (selector + refresh)
+        left_box = ttk.Frame(header)
+        left_box.pack(side=LEFT, fill=X, expand=True)
+
+        ttk.Label(left_box, text="Fichier combiné (exports/pay):").pack(side=LEFT)
+        self.pay_file_menu = ttk.Combobox(left_box, textvariable=self.selected_payfile_var, state="readonly", width=44)
         self.pay_file_menu.pack(side=LEFT, padx=6)
         self.pay_file_menu.bind("<<ComboboxSelected>>", self.on_payfile_select)
 
-        ttk.Button(header, text="Rafraîchir", command=self.refresh_pay_files).pack(side=LEFT, padx=6)
+        ttk.Button(left_box, text="Rafraîchir", command=self.refresh_pay_files).pack(side=LEFT, padx=6)
+
+        # RIGHT side of header (export buttons pinned to far right)
+        right_box = ttk.Frame(header)
+        right_box.pack(side=RIGHT)
+
+        ttk.Button(right_box, text="Créer livret (PDF)", bootstyle="primary", command=self.on_make_booklet).pack(side=RIGHT, padx=6)
+        ttk.Button(right_box, text="Exporter tous (PDF)", bootstyle="secondary", command=self.on_export_all).pack(side=RIGHT, padx=6)
 
         # Paned layout so the employee panel is wider and resizable
         paned = ttk.Panedwindow(self.frame, orient=HORIZONTAL)
@@ -365,6 +377,47 @@ class PayTab:
             tag = "even" if row_idx % 2 == 0 else "odd"
             self.shift_tree.insert("", END, values=values, tags=(tag,))
             row_idx += 1
+
+    # -----------------------
+    # Export handlers (call Export.py)
+    # -----------------------
+    def on_export_all(self):
+        if not self.current_period_label:
+            messagebox.showwarning("Export PDF", "Aucune période sélectionnée.")
+            return
+        if not self.employees_index:
+            messagebox.showwarning("Export PDF", "Aucun employé à exporter.")
+            return
+
+        out_dir = os.path.join(self.export_folders["pdf"], self.current_period_label)
+        try:
+            from Export import export_all_employee_pdfs
+            paths = export_all_employee_pdfs(self.current_period_label, self.employees_index, out_dir)
+        except Exception as e:
+            messagebox.showerror("Export PDF", f"Erreur d'export:\n{e}")
+            return
+
+        messagebox.showinfo("Export PDF", f"{len(paths)} fichiers créés dans:\n{out_dir}")
+
+    def on_make_booklet(self):
+        if not self.current_period_label:
+            messagebox.showwarning("Livret PDF", "Aucune période sélectionnée.")
+            return
+        if not self.employees_index:
+            messagebox.showwarning("Livret PDF", "Aucun employé à inclure.")
+            return
+
+        out_dir = os.path.join(self.export_folders["pdf"], self.current_period_label)
+        try:
+            from Export import export_all_employee_pdfs, make_booklet
+            pdfs = export_all_employee_pdfs(self.current_period_label, self.employees_index, out_dir)
+            booklet = os.path.join(out_dir, f"{self.current_period_label}_ALL.pdf")
+            make_booklet(self.current_period_label, pdfs, booklet)
+        except Exception as e:
+            messagebox.showerror("Livret PDF", f"Erreur lors de la création du livret:\n{e}")
+            return
+
+        messagebox.showinfo("Livret PDF", f"Livret créé:\n{booklet}")
 
     # -----------------------
     # Helpers

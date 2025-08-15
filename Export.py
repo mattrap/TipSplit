@@ -1,7 +1,7 @@
 from datetime import datetime
 from PayPeriods import get_selected_period
 from reportlab.lib.units import inch
-from reportlab.lib.pagesizes import letter
+from reportlab.lib.pagesizes import letter, landscape
 from reportlab.pdfgen import canvas
 from tkinter import messagebox
 import os
@@ -10,6 +10,7 @@ import subprocess
 import traceback
 import sys
 import platform
+from typing import Dict, List
 
 # -------------------- Utility --------------------
 def get_unique_filename(base_path):
@@ -210,7 +211,7 @@ def draw_declaration_body(c, y, entries_decl, height):
         y -= 16
     return y
 
-# -------------------- Export Functions --------------------
+# -------------------- Export Functions (Distribution+Declaration) --------------------
 def pdf_export(date, shift, pay_period, fields, entries_dist, entries_decl, distribution_tab, decl_fields_raw, json_filename):
     """
     Create a 2-page PDF:
@@ -347,6 +348,294 @@ def json_export(date, shift, pay_period, fields_sanitized, decl_fields_raw, entr
         json.dump(data, f, indent=4, ensure_ascii=False)
 
     return final_json_path, os.path.basename(final_json_path)
+
+# ===================================================================== #
+#                     Employee Résumé + Booklet                         #
+# ===================================================================== #
+
+def _fmt_num(x, hours: bool = False) -> str:
+    try:
+        val = float(x)
+        if hours:
+            return f"{val:.4f}".rstrip("0").rstrip(".") if abs(val) < 10 else f"{val:.2f}"
+        return f"{val:.2f}"
+    except Exception:
+        return str(x)
+
+def _amount_declared_and_label(totals: dict, role: str):
+    """
+    Returns (declared_value, declared_source_label)
+    - Service: max( F_sum, 8% of A_sum ) with label 'F' or '8% de A'
+    - Bussboy: D_sum with label 'D'
+    """
+    role_lower = (role or "").lower()
+    if "service" in role_lower:
+        a_sum = float(totals.get("A_sum", 0.0))
+        f_sum = float(totals.get("F_sum", 0.0))
+        a_floor = 0.08 * a_sum
+        if f_sum >= a_floor:
+            return f_sum, "F"
+        else:
+            return a_floor, "8% des ventes"
+    if "bussboy" in role_lower or "busboy" in role_lower:
+        d_sum = float(totals.get("D_sum", 0.0))
+        return d_sum, "D"
+    # Fallback
+    return 0.0, "—"
+
+def _safe_text(x) -> str:
+    return "" if x is None else str(x)
+
+def _safe_key(info: dict) -> str:
+    """Filename-safe employee key: prefer ID, else name."""
+    base = _safe_text(info.get("id") or info.get("name") or "employee")
+    for ch in ["/", "\\", ":", "*", "?", "\"", "<", ">", "|"]:
+        base = base.replace(ch, "_")
+    return base.strip() or "employee"
+
+def _col_centers(left: int, widths: List[int]) -> List[float]:
+    """Return x-centers for each column given left start and widths."""
+    centers = []
+    x = left
+    for w in widths:
+        centers.append(x + w / 2.0)
+        x += w
+    return centers
+
+def _draw_employee_pdf(out_path: str, period_label: str, info: dict):
+    """
+    Render one employee PDF with TWO sections on the SAME PAGE:
+      1) DÉTAILLÉ: Cash / Sur paye / Frais admin détaillé par quart + Total (all columns centered)
+      2) DÉCLARATION: A/B/E/F (Service) or D (Bussboy) détaillé par quart + Total + 'Déclaré selon ...' (centered)
+    'info' must match PayTab.employees_index[...] = {id,name,role,shifts[],totals{}}
+    Each shift item should include 'display_name' (filename without extension),
+    and numeric fields hours, cash, sur_paye, frais_admin, plus A/B/E/F or D.
+    """
+    page_w, page_h = map(int, letter)
+    margin = 50
+    left = margin
+    right = page_w - margin
+    y = page_h - margin
+
+    # Spacing constants
+    h1_gap = 18
+    sub_gap = 22
+    sec_title_gap = 16
+    line_h = 12
+    hdr_gap = 14
+    row_gap = 12
+    rule_gap = 8
+    bottom_margin = 60
+
+    def new_canvas(path):
+        c = canvas.Canvas(path, pagesize=letter)
+        c.setLineWidth(1)
+        return c
+
+    def draw_header(cnv):
+        nonlocal y
+        cnv.setFont("Helvetica-Bold", 14)
+        cnv.drawString(left, y, f"{_safe_text(info.get('name'))} — ID: {_safe_text(info.get('id') or '—')}")
+        y -= h1_gap
+        cnv.setFont("Helvetica", 11)
+        cnv.drawString(left, y, f"Période: {period_label}   |   Rôle: {_safe_text(info.get('role') or '—')}")
+        y -= sub_gap
+
+    def paginate_if_needed(cnv):
+        nonlocal y
+        if y < bottom_margin:
+            cnv.showPage()
+            y = page_h - margin
+            cnv.setLineWidth(1)
+            draw_header(cnv)
+
+    def draw_rule(cnv):
+        nonlocal y
+        cnv.line(left, int(y), right, int(y))
+        y -= rule_gap
+
+    c = new_canvas(out_path)
+    draw_header(c)
+
+    # =========================
+    # Section 1: DÉTAILLÉ (centered columns)
+    # =========================
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(left, y, "DÉTAILLÉ:")
+    y -= sec_title_gap
+
+    # columns: Date, Cash, Sur paye, Frais admin
+    c.setFont("Helvetica-Bold", 10)
+    col_w_det = [150, 100, 110, 120]
+    headers_det = ["Date (quart)", "Cash", "Sur paye", "Frais admin"]
+    centers_det = _col_centers(left, col_w_det)
+
+    # Header row (centered)
+    for cx, h in zip(centers_det, headers_det):
+        c.drawCentredString(int(cx), int(y), h)
+    y -= hdr_gap
+    draw_rule(c)
+    c.setFont("Helvetica", 10)
+
+    # Rows
+    total_cash = 0.0
+    total_sur = 0.0
+    total_admin = 0.0
+
+    for s in info.get("shifts", []):
+        paginate_if_needed(c)
+        vals = [
+            _safe_text(s.get("display_name") or s.get("date") or ""),
+            _fmt_num(s.get("cash") or 0.0),
+            _fmt_num(s.get("sur_paye") or 0.0),
+            _fmt_num(s.get("frais_admin") or 0.0),
+        ]
+        for cx, v in zip(centers_det, vals):
+            c.drawCentredString(int(cx), int(y), v)
+        y -= row_gap
+
+        total_cash += float(s.get("cash") or 0.0)
+        total_sur += float(s.get("sur_paye") or 0.0)
+        total_admin += float(s.get("frais_admin") or 0.0)
+
+    # Totals line for DÉTAILLÉ (centered in numeric columns)
+    y -= 2
+    draw_rule(c)
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(left, y, "Total:")
+    # Put totals under their columns
+    c.drawCentredString(int(centers_det[1]), int(y), _fmt_num(total_cash))
+    c.drawCentredString(int(centers_det[2]), int(y), _fmt_num(total_sur))
+    c.drawCentredString(int(centers_det[3]), int(y), _fmt_num(total_admin))
+    y -= sub_gap
+
+    paginate_if_needed(c)
+
+    # =========================
+    # Section 2: DÉCLARATION (centered columns)
+    # =========================
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(left, y, "DÉCLARATION:")
+    y -= sec_title_gap
+
+    role_lower = (_safe_text(info.get("role"))).lower()
+    is_service = "service" in role_lower
+    is_bus = ("bussboy" in role_lower) or ("busboy" in role_lower)
+
+    # Columns
+    if is_service:
+        headers_dec = ["Date (quart)", "A", "B", "E", "F"]
+        col_w_dec = [150, 90, 90, 90, 90]
+    elif is_bus:
+        headers_dec = ["Date (quart)", "D"]
+        col_w_dec = [300, 110]
+    else:
+        headers_dec = ["Date (quart)", "A", "B", "D", "E", "F"]
+        col_w_dec = [150, 70, 70, 70, 70, 70]
+
+    centers_dec = _col_centers(left, col_w_dec)
+
+    # Header row (centered)
+    c.setFont("Helvetica-Bold", 10)
+    for cx, h in zip(centers_dec, headers_dec):
+        c.drawCentredString(int(cx), int(y), h)
+    y -= hdr_gap
+    draw_rule(c)
+    c.setFont("Helvetica", 10)
+
+    # Totals accumulators
+    A_sum = B_sum = D_sum = E_sum = F_sum = 0.0
+
+    # Rows
+    for s in info.get("shifts", []):
+        paginate_if_needed(c)
+        date_label = _safe_text(s.get("display_name") or s.get("date") or "")
+        A = float(s.get("A") or 0.0)
+        B = _safe_text(s.get("B") if s.get("B") not in (None, "") else "")
+        D = float(s.get("D") or 0.0)
+        E = _safe_text(s.get("E") if s.get("E") not in (None, "") else "")
+        F = float(s.get("F") or 0.0)
+
+        if is_service:
+            row_vals = [date_label, _fmt_num(A), B, E, _fmt_num(F)]
+        elif is_bus:
+            row_vals = [date_label, _fmt_num(D)]
+        else:
+            row_vals = [date_label, _fmt_num(A), B, _fmt_num(D), E, _fmt_num(F)]
+
+        for cx, v in zip(centers_dec, row_vals):
+            c.drawCentredString(int(cx), int(y), v)
+        y -= row_gap
+
+        A_sum += A
+        D_sum += D
+        F_sum += F
+
+    # Totals line for DÉCLARATION (centered)
+    y -= 2
+    draw_rule(c)
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(left, y, "Total:")
+
+    if is_service:
+        # centers_dec indices: 0=date, 1=A, 2=B, 3=E, 4=F
+        c.drawCentredString(int(centers_dec[1]), int(y), _fmt_num(A_sum))
+        # B/E totals intentionally blank
+        c.drawCentredString(int(centers_dec[4]), int(y), _fmt_num(F_sum))
+        totals_for_decl = {"A_sum": A_sum, "F_sum": F_sum}
+    elif is_bus:
+        c.drawCentredString(int(centers_dec[1]), int(y), _fmt_num(D_sum))
+        totals_for_decl = {"D_sum": D_sum}
+    else:
+        # 0=date, 1=A, 2=B, 3=D, 4=E, 5=F
+        c.drawCentredString(int(centers_dec[1]), int(y), _fmt_num(A_sum))
+        c.drawCentredString(int(centers_dec[3]), int(y), _fmt_num(D_sum))
+        c.drawCentredString(int(centers_dec[5]), int(y), _fmt_num(F_sum))
+        totals_for_decl = {"A_sum": A_sum, "D_sum": D_sum, "F_sum": F_sum}
+
+    y -= line_h
+
+    # Declared line with source label
+    declared_val, declared_src = _amount_declared_and_label(totals_for_decl, info.get("role"))
+    c.setFont("Helvetica", 10)
+    c.drawString(left, y, f"Déclaré selon {declared_src}: {_fmt_num(declared_val)}")
+    y -= sub_gap
+
+    c.save()
+
+def export_all_employee_pdfs(period_label: str, employees_index: Dict[str, dict], out_dir: str) -> List[str]:
+    """
+    Create one PDF per employee under out_dir.
+    'employees_index' is the dict built by PayTab (id, name, role, shifts[], totals{}).
+    Returns sorted list of created file paths.
+    """
+    os.makedirs(out_dir, exist_ok=True)
+    paths: List[str] = []
+    for _, info in employees_index.items():
+        safe_name = _safe_key(info) + ".pdf"
+        out_path = os.path.join(out_dir, safe_name)
+        _draw_employee_pdf(out_path, period_label, info)
+        paths.append(out_path)
+    return sorted(paths)
+
+def make_booklet(period_label: str, pdf_paths: List[str], out_file: str) -> str:
+    """
+    Merge per-employee PDFs into a single booklet PDF.
+    Requires PyPDF2.
+    """
+    try:
+        from PyPDF2 import PdfMerger
+    except Exception as e:
+        raise RuntimeError("PyPDF2 is required to build the booklet") from e
+
+    os.makedirs(os.path.dirname(out_file), exist_ok=True)
+    merger = PdfMerger()
+    for p in pdf_paths:
+        if os.path.isfile(p):
+            merger.append(p)
+    merger.write(out_file)
+    merger.close()
+    return out_file
 
 # -------------------- Main Trigger --------------------
 def export_distribution_from_tab(distribution_tab):
