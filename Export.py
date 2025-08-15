@@ -211,7 +211,13 @@ def draw_declaration_body(c, y, entries_decl, height):
     return y
 
 # -------------------- Export Functions --------------------
-def pdf_export(date, shift, pay_period, fields, entries_dist, entries_decl, distribution_tab, decl_fields_raw):
+def pdf_export(date, shift, pay_period, fields, entries_dist, entries_decl, distribution_tab, decl_fields_raw, json_filename):
+    """
+    Create a 2-page PDF:
+      - Page 1: Distribution
+      - Page 2: Declaration
+    The JSON filename that corresponds to this export is printed under the pay-period line on both pages.
+    """
     period_folder = f"{pay_period[0].replace('/', '-')}_au_{pay_period[1].replace('/', '-')}"
     pdf_dir = os.path.join("exports", "pdf", period_folder)
     os.makedirs(pdf_dir, exist_ok=True)
@@ -229,6 +235,9 @@ def pdf_export(date, shift, pay_period, fields, entries_dist, entries_decl, dist
     y -= 20
     c.setFont("Helvetica", 11)
     c.drawString(50, y, f"Période de paye: {pay_period[0]} au {pay_period[1]}")
+    y -= 18
+    c.setFont("Helvetica-Oblique", 10)
+    c.drawString(50, y, f"Fichier JSON: {json_filename}")
     y -= 30
 
     y = draw_input_section(c, y, fields)
@@ -245,6 +254,9 @@ def pdf_export(date, shift, pay_period, fields, entries_dist, entries_decl, dist
     y -= 20
     c.setFont("Helvetica", 11)
     c.drawString(50, y, f"Période de paye: {pay_period[0]} au {pay_period[1]}")
+    y -= 18
+    c.setFont("Helvetica-Oblique", 10)
+    c.drawString(50, y, f"Fichier JSON: {json_filename}")
     y -= 30
 
     decl_vals = distribution_tab.declaration_net_values()
@@ -258,6 +270,10 @@ def pdf_export(date, shift, pay_period, fields, entries_dist, entries_decl, dist
     return final_pdf_path
 
 def json_export(date, shift, pay_period, fields_sanitized, decl_fields_raw, entries_dist, entries_decl):
+    """
+    Create the merged JSON for the distribution & declaration.
+    Returns (final_json_path, final_json_basename)
+    """
     period_folder = f"{pay_period[0].replace('/', '-')}_au_{pay_period[1].replace('/', '-')}"
     json_dir = os.path.join("exports", "json", period_folder)
     os.makedirs(json_dir, exist_ok=True)
@@ -330,7 +346,7 @@ def json_export(date, shift, pay_period, fields_sanitized, decl_fields_raw, entr
     with open(final_json_path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4, ensure_ascii=False)
 
-    return final_json_path
+    return final_json_path, os.path.basename(final_json_path)
 
 # -------------------- Main Trigger --------------------
 def export_distribution_from_tab(distribution_tab):
@@ -419,13 +435,21 @@ def export_distribution_from_tab(distribution_tab):
         start_str, end_str = pay_period_data["range"].split(" - ")
         pay_period = (start_str, end_str)
 
-        # Exports
-        pdf_path = pdf_export(date, shift, pay_period, raw_inputs, entries_dist, entries_decl,
-                              distribution_tab, raw_decl_inputs)
-        json_path = json_export(date, shift, pay_period, sanitized_inputs, raw_decl_inputs,
-                                entries_dist, entries_decl)
+        # ---- Export JSON first to get its final filename ----
+        json_path, json_filename = json_export(
+            date, shift, pay_period, sanitized_inputs, raw_decl_inputs, entries_dist, entries_decl
+        )
 
-        messagebox.showinfo("Exporté", f"PDF généré avec succès:\n{os.path.basename(pdf_path)}")
+        # ---- Export PDF, including the JSON filename on each page ----
+        pdf_path = pdf_export(
+            date, shift, pay_period, raw_inputs, entries_dist, entries_decl,
+            distribution_tab, raw_decl_inputs, json_filename
+        )
+
+        messagebox.showinfo(
+            "Exporté",
+            f"PDF généré avec succès:\n{os.path.basename(pdf_path)}"
+        )
         open_file_cross_platform(pdf_path)
 
     except Exception as e:
