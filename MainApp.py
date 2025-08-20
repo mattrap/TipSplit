@@ -7,6 +7,7 @@ from Distribution import DistributionTab
 from tkinter.simpledialog import askstring
 from tkinter import messagebox
 from Pay import PayTab
+from AppConfig import ensure_pdf_dir_selected
 
 
 class TipSplitApp:
@@ -14,6 +15,8 @@ class TipSplitApp:
         self.root = root
         self.root.title("TipSplit")
         self.root.geometry("800x850")
+
+        ensure_pdf_dir_selected(self.root)
 
         self.shared_data = {}
 

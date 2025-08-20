@@ -20,15 +20,11 @@ class PayTab:
         self.master = master
         self.frame = ttk.Frame(master)
 
-        # Folder structure
-        self.exports_root = "exports"
-        self.export_folders = {
-            "pdf": os.path.join(self.exports_root, "pdf"),
-            "json": os.path.join(self.exports_root, "json"),
-            "pay": os.path.join(self.exports_root, "pay"),
-        }
-        for p in self.export_folders.values():
-            os.makedirs(p, exist_ok=True)
+        # Backend folder for COMBINED pay files only (reader for this tab).
+        # PDFs are NOT written here anymore; Export.py writes to the user-chosen folder.
+        self.backend_root = "exports"            # legacy backend root
+        self.combined_pay_dir = os.path.join(self.backend_root, "pay")
+        os.makedirs(self.combined_pay_dir, exist_ok=True)
 
         # UI state
         self.selected_payfile_var = StringVar()
@@ -65,8 +61,12 @@ class PayTab:
         right_box = ttk.Frame(header)
         right_box.pack(side=RIGHT)
 
-        ttk.Button(right_box, text="Créer livret (PDF)", bootstyle="primary", command=self.on_make_booklet).pack(side=RIGHT, padx=6)
-        ttk.Button(right_box, text="Exporter tous (PDF)", bootstyle="secondary", command=self.on_export_all).pack(side=RIGHT, padx=6)
+        ttk.Button(
+            right_box, text="Créer livret (PDF)", bootstyle="primary", command=self.on_make_booklet
+        ).pack(side=RIGHT, padx=6)
+        ttk.Button(
+            right_box, text="Exporter tous (PDF)", bootstyle="secondary", command=self.on_export_all
+        ).pack(side=RIGHT, padx=6)
 
         # Paned layout so the employee panel is wider and resizable
         paned = ttk.Panedwindow(self.frame, orient=HORIZONTAL)
@@ -145,7 +145,7 @@ class PayTab:
     # Load combined files
     # -----------------------
     def refresh_pay_files(self):
-        pay_dir = self.export_folders["pay"]
+        pay_dir = self.combined_pay_dir
         files = []
         try:
             for name in os.listdir(pay_dir):
@@ -175,7 +175,7 @@ class PayTab:
         if not label:
             return
 
-        path = os.path.join(self.export_folders["pay"], label)
+        path = os.path.join(self.combined_pay_dir, label)
         if not os.path.isfile(path):
             return
 
@@ -389,15 +389,19 @@ class PayTab:
             messagebox.showwarning("Export PDF", "Aucun employé à exporter.")
             return
 
-        out_dir = os.path.join(self.export_folders["pdf"], self.current_period_label)
         try:
             from Export import export_all_employee_pdfs
-            paths = export_all_employee_pdfs(self.current_period_label, self.employees_index, out_dir)
+            # Export.py writes to {PDF_ROOT}/Paye/{period}/...
+            paths = export_all_employee_pdfs(self.current_period_label, self.employees_index, out_dir="")
         except Exception as e:
             messagebox.showerror("Export PDF", f"Erreur d'export:\n{e}")
             return
 
-        messagebox.showinfo("Export PDF", f"{len(paths)} fichiers créés dans:\n{out_dir}")
+        if paths:
+            target_dir = os.path.dirname(paths[0])
+            messagebox.showinfo("Export PDF", f"{len(paths)} fichiers créés dans:\n{target_dir}")
+        else:
+            messagebox.showinfo("Export PDF", "Aucun fichier PDF n'a été créé.")
 
     def on_make_booklet(self):
         if not self.current_period_label:
@@ -407,17 +411,16 @@ class PayTab:
             messagebox.showwarning("Livret PDF", "Aucun employé à inclure.")
             return
 
-        out_dir = os.path.join(self.export_folders["pdf"], self.current_period_label)
         try:
             from Export import export_all_employee_pdfs, make_booklet
-            pdfs = export_all_employee_pdfs(self.current_period_label, self.employees_index, out_dir)
-            booklet = os.path.join(out_dir, f"{self.current_period_label}_ALL.pdf")
-            make_booklet(self.current_period_label, pdfs, booklet)
+            pdfs = export_all_employee_pdfs(self.current_period_label, self.employees_index, out_dir="")
+            booklet_name_guess = f"{self.current_period_label}_ALL.pdf"
+            booklet_path = make_booklet(self.current_period_label, pdfs, booklet_name_guess)
         except Exception as e:
             messagebox.showerror("Livret PDF", f"Erreur lors de la création du livret:\n{e}")
             return
 
-        messagebox.showinfo("Livret PDF", f"Livret créé:\n{booklet}")
+        messagebox.showinfo("Livret PDF", f"Livret créé:\n{booklet_path}")
 
     # -----------------------
     # Helpers

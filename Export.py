@@ -11,6 +11,7 @@ import traceback
 import sys
 import platform
 from typing import Dict, List
+from AppConfig import get_pdf_dir, get_backend_dir
 
 # -------------------- Utility --------------------
 def get_unique_filename(base_path):
@@ -23,6 +24,65 @@ def get_unique_filename(base_path):
         if not os.path.exists(new_path):
             return new_path
         i += 1
+
+def _ensure_dir(path: str):
+    if path and not os.path.exists(path):
+        os.makedirs(path, exist_ok=True)
+
+def _fallback_pdf_root() -> str:
+    """Safe fallback if user skipped choosing a folder."""
+    return os.path.expanduser("~/TipSplitExports")
+
+def _pdf_root() -> str:
+    """User-chosen PDF export root, or a safe fallback."""
+    return get_pdf_dir() or _fallback_pdf_root()
+
+def _period_folder_from_tuple(pay_period_tuple: tuple) -> str:
+    start, end = pay_period_tuple
+    return f"{start.replace('/', '-')}_au_{end.replace('/', '-')}"
+
+def _period_folder_from_label(period_label: str) -> str:
+    """
+    Accepts strings like:
+      '2025-06-08 au 2025-06-21'   or   '2025-06-08 - 2025-06-21'
+    Falls back safely if format differs.
+    """
+    label = (period_label or "").strip()
+    if " au " in label:
+        a, b = label.split(" au ", 1)
+    elif " - " in label:
+        a, b = label.split(" - ", 1)
+    else:
+        # unknown format: just sanitize the label
+        return label.replace("/", "-").replace(":", "-")
+    a = a.strip().replace("/", "-")
+    b = b.strip().replace("/", "-")
+    return f"{a}_au_{b}"
+
+def _pdf_period_dir(category: str, pay_period_tuple: tuple) -> str:
+    """
+    category: 'daily' -> Résumé de shift
+              'pay'   -> Paye
+    """
+    root = _pdf_root()
+    period_folder = _period_folder_from_tuple(pay_period_tuple)
+    if category == "daily":
+        target = os.path.join(root, "Résumé de shift", period_folder)
+    else:
+        target = os.path.join(root, "Paye", period_folder)
+    _ensure_dir(target)
+    return target
+
+def _json_period_dir(pay_period_tuple: tuple) -> str:
+    """
+    JSON lives in the internal backend folder, namespaced by period.
+    Users shouldn't need to access it directly.
+    """
+    start, end = pay_period_tuple
+    period_folder = f"{start.replace('/', '-')}_au_{end.replace('/', '-')}"
+    target = os.path.join(get_backend_dir(), period_folder)
+    _ensure_dir(target)
+    return target
 
 # helper
 def open_file_cross_platform(path):
@@ -218,11 +278,9 @@ def pdf_export(date, shift, pay_period, fields, entries_dist, entries_decl, dist
       - Page 1: Distribution
       - Page 2: Declaration
     The JSON filename that corresponds to this export is printed under the pay-period line on both pages.
+    PDF is saved under: {PDF_ROOT}/Résumé de shift/{period}/...
     """
-    period_folder = f"{pay_period[0].replace('/', '-')}_au_{pay_period[1].replace('/', '-')}"
-    pdf_dir = os.path.join("exports", "pdf", period_folder)
-    os.makedirs(pdf_dir, exist_ok=True)
-
+    pdf_dir = _pdf_period_dir("daily", pay_period)
     base_pdf_path = os.path.join(pdf_dir, f"{date}-{shift}_distribution.pdf")
     final_pdf_path = get_unique_filename(base_pdf_path)
 
@@ -274,11 +332,9 @@ def json_export(date, shift, pay_period, fields_sanitized, decl_fields_raw, entr
     """
     Create the merged JSON for the distribution & declaration.
     Returns (final_json_path, final_json_basename)
+    JSON is saved to the internal backend folder, namespaced by pay period.
     """
-    period_folder = f"{pay_period[0].replace('/', '-')}_au_{pay_period[1].replace('/', '-')}"
-    json_dir = os.path.join("exports", "json", period_folder)
-    os.makedirs(json_dir, exist_ok=True)
-
+    json_dir = _json_period_dir(pay_period)
     base_json_path = os.path.join(json_dir, f"{date}-{shift}_distribution.json")
     final_json_path = get_unique_filename(base_json_path)
 
@@ -593,7 +649,7 @@ def _draw_employee_pdf(out_path: str, period_label: str, info: dict):
         c.drawCentredString(int(centers_dec[5]), int(y), _fmt_num(F_sum))
         totals_for_decl = {"A_sum": A_sum, "D_sum": D_sum, "F_sum": F_sum}
 
-    y -= line_h
+    y -= 12  # line_h
 
     # Declared line with source label
     declared_val, declared_src = _amount_declared_and_label(totals_for_decl, info.get("role"))
@@ -605,15 +661,21 @@ def _draw_employee_pdf(out_path: str, period_label: str, info: dict):
 
 def export_all_employee_pdfs(period_label: str, employees_index: Dict[str, dict], out_dir: str) -> List[str]:
     """
-    Create one PDF per employee under out_dir.
-    'employees_index' is the dict built by PayTab (id, name, role, shifts[], totals{}).
+    Create one PDF per employee.
+    Per your rule, PDFs are written under:
+        {PDF_ROOT}/Paye/{period}/
+    'out_dir' is ignored for placement to avoid accidental misroutes; we still keep it in signature
+    for backward-compat with existing callers.
     Returns sorted list of created file paths.
     """
-    os.makedirs(out_dir, exist_ok=True)
+    period_folder = _period_folder_from_label(period_label)
+    target_dir = os.path.join(_pdf_root(), "Paye", period_folder)
+    _ensure_dir(target_dir)
+
     paths: List[str] = []
     for _, info in employees_index.items():
         safe_name = _safe_key(info) + ".pdf"
-        out_path = os.path.join(out_dir, safe_name)
+        out_path = os.path.join(target_dir, safe_name)
         _draw_employee_pdf(out_path, period_label, info)
         paths.append(out_path)
     return sorted(paths)
@@ -622,20 +684,28 @@ def make_booklet(period_label: str, pdf_paths: List[str], out_file: str) -> str:
     """
     Merge per-employee PDFs into a single booklet PDF.
     Requires PyPDF2.
+    The booklet is saved under:
+        {PDF_ROOT}/Paye/{period}/livret_...pdf
     """
     try:
         from PyPDF2 import PdfMerger
     except Exception as e:
         raise RuntimeError("PyPDF2 is required to build the booklet") from e
 
-    os.makedirs(os.path.dirname(out_file), exist_ok=True)
+    period_folder = _period_folder_from_label(period_label)
+    target_dir = os.path.join(_pdf_root(), "Paye", period_folder)
+    _ensure_dir(target_dir)
+
+    booklet_name = os.path.basename(out_file) if out_file else f"livret_{period_folder}.pdf"
+    target_path = os.path.join(target_dir, booklet_name)
+
     merger = PdfMerger()
     for p in pdf_paths:
         if os.path.isfile(p):
             merger.append(p)
-    merger.write(out_file)
+    merger.write(target_path)
     merger.close()
-    return out_file
+    return target_path
 
 # -------------------- Main Trigger --------------------
 def export_distribution_from_tab(distribution_tab):
@@ -724,12 +794,12 @@ def export_distribution_from_tab(distribution_tab):
         start_str, end_str = pay_period_data["range"].split(" - ")
         pay_period = (start_str, end_str)
 
-        # ---- Export JSON first to get its final filename ----
+        # ---- Export JSON first to get its final filename (into backend) ----
         json_path, json_filename = json_export(
             date, shift, pay_period, sanitized_inputs, raw_decl_inputs, entries_dist, entries_decl
         )
 
-        # ---- Export PDF, including the JSON filename on each page ----
+        # ---- Export PDF, including the JSON filename on each page (into chosen PDF folder under Résumé de shift) ----
         pdf_path = pdf_export(
             date, shift, pay_period, raw_inputs, entries_dist, entries_decl,
             distribution_tab, raw_decl_inputs, json_filename
@@ -748,9 +818,16 @@ def export_distribution_from_tab(distribution_tab):
         print(traceback_str)
 
 '''
-All PDFs are saved under:
-exports/pdf/{pay_period_folder}/{filename}.pdf
+PDF DESTINATIONS:
+- Daily distribution PDFs:
+    {PDF_ROOT}/Résumé de shift/{pay_period}/{date}-{shift}_distribution.pdf
 
-All JSONs are saved under:
-exports/json/{pay_period_folder}/{filename}.json
+- Employee pay summaries (per-employee PDFs) via export_all_employee_pdfs():
+    {PDF_ROOT}/Paye/{pay_period}/{employee}.pdf
+
+- Booklet via make_booklet():
+    {PDF_ROOT}/Paye/{pay_period}/{booklet_name}.pdf
+
+JSON DESTINATION (unchanged conceptually, but now always internal):
+    {BACKEND_ROOT}/{pay_period}/{filename}.json
 '''

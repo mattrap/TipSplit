@@ -7,6 +7,10 @@ from tkinter import filedialog, messagebox
 from tkinter import StringVar, END, Listbox, Text
 from ttkbootstrap.constants import *
 
+# NEW: use the internal backend location for raw JSON distributions
+from AppConfig import get_backend_dir
+
+
 class JsonViewerTab:
     def __init__(self, master):
         self.master = master
@@ -18,18 +22,17 @@ class JsonViewerTab:
         self.current_file_path = None
         self.view_mode = StringVar(value="distribution")
 
-        # --- Export folder structure ---
-        self.exports_root = "exports"
-        self.export_folders = {
-            "pdf": os.path.join(self.exports_root, "pdf"),
-            "json": os.path.join(self.exports_root, "json"),
-            "pay": os.path.join(self.exports_root, "pay"),
-        }
-        for p in self.export_folders.values():
-            os.makedirs(p, exist_ok=True)
+        # --- Folders ---
+        # Raw per-day JSONs now live in the internal backend dir, with one subfolder per pay period.
+        self.backend_json_root = get_backend_dir()
+
+        # Combined pay files (the big .Json used by the Pay tab) remain in legacy backend:
+        # exports/pay/{pay_period}.Json  (Pay.py reads from here)
+        self.combined_pay_root = os.path.join("exports", "pay")
+        os.makedirs(self.combined_pay_root, exist_ok=True)
 
         # Base directory where pay-period folders live (each pay period is a subfolder here)
-        self.base_dir = self.export_folders["json"]
+        self.base_dir = self.backend_json_root
 
         # Map pay-period label -> absolute path
         self.period_paths = {}
@@ -45,7 +48,7 @@ class JsonViewerTab:
         header_frame = ttk.Frame(self.frame)
         header_frame.pack(fill=X, pady=5, padx=10)
 
-        ttk.Label(header_frame, text="Période de paye:").pack(side=LEFT)
+        ttk.Label(header_frame, text="Période de paye (backend):").pack(side=LEFT)
         self.period_menu = ttk.Combobox(header_frame, textvariable=self.pay_period_var, state="readonly", width=28)
         self.period_menu.pack(side=LEFT, padx=5)
         self.period_menu.bind("<<ComboboxSelected>>", self.on_period_select)
@@ -72,7 +75,7 @@ class JsonViewerTab:
         # JSON file list
         list_frame = ttk.Frame(self.frame)
         list_frame.pack(fill=X, padx=10, pady=(2, 0))
-        ttk.Label(list_frame, text="Fichiers JSON:").pack(anchor=W)
+        ttk.Label(list_frame, text="Fichiers JSON (backend):").pack(anchor=W)
 
         self.file_listbox = Listbox(list_frame, height=6)
         self.file_listbox.pack(fill=X, pady=5)
@@ -334,7 +337,11 @@ class JsonViewerTab:
     def on_create_combined_file(self):
         """
         Handler for the 'Créer fichier combiné' button.
-        Creates exports/json/{pay_period}.Json containing all *.json distributions from the selected period folder.
+
+        It combines all *.json distributions from the selected backend period folder and writes:
+            exports/pay/{pay_period}.Json
+
+        (The Pay tab reads combined files from exports/pay.)
         """
         period_label = self._resolve_selected_pay_period_label()
         if not period_label:
@@ -350,25 +357,34 @@ class JsonViewerTab:
         try:
             out_path = self._combine_all_jsons_in_period(pay_period_path, period_label)
             messagebox.showinfo("Succès", f"Fichier combiné créé:\n{out_path}")
-            # Refresh the list (combined file is saved in exports/json root, not in the period folder)
+            # Refresh the list (we're browsing per-day JSONs; combined lives elsewhere)
             self.on_period_select(None)
         except Exception as e:
             messagebox.showerror("Erreur", f"Échec de la création du fichier combiné:\n{e}")
 
     def _combine_all_jsons_in_period(self, pay_period_path: str, pay_period_label: str) -> str:
         """
-        Combine every *.json file in the pay period folder into a single JSON file named
-        'exports/json/{pay_period_label}.Json'. The result contains a list of distributions with their
-        original filename and parsed content (or an 'error' field if parsing fails).
+        Combine every *.json file in the selected backend pay-period folder into:
+            exports/pay/{pay_period_label}.Json
 
-        Returns the output file path.
+        The result contains:
+            {
+              "pay_period": "...",
+              "created_at": "...",
+              "num_files": N,
+              "distributions": [
+                {"filename": "...", "content": {...}} or {"filename": "...", "error": "..."}
+              ]
+            }
+
+        Returns the absolute output file path.
         """
         if not os.path.isdir(pay_period_path):
             raise FileNotFoundError(f"Dossier introuvable: {pay_period_path}")
 
-        # Output file is placed in the exports/json root (NOT inside the period folder)
         out_name = f"{pay_period_label}.Json"
-        out_path = os.path.join(self.export_folders["pay"], out_name)
+        out_path = os.path.join(self.combined_pay_root, out_name)
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
 
         # Gather candidates from the selected pay-period folder
         all_jsons = sorted(
@@ -376,10 +392,10 @@ class JsonViewerTab:
             if os.path.isfile(p)
         )
 
-        # Exclude known aggregate/final files if they happen to be inside the folder
+        # Exclude known aggregate/final files if they somehow exist inside the folder
         excluded_names = {
-            os.path.basename(out_path),               # if a file with same name exists in this folder (unlikely now)
-            f"{pay_period_label}_pay_data.json"       # your final-pay JSON, if present
+            os.path.basename(out_path),
+            f"{pay_period_label}_pay_data.json",
         }
 
         jsons_to_merge = [p for p in all_jsons if os.path.basename(p) not in excluded_names]
@@ -397,7 +413,6 @@ class JsonViewerTab:
                 with open(p, "r", encoding="utf-8") as f:
                     entry["content"] = json.load(f)
             except Exception as e:
-                # Record the problem and continue
                 entry["error"] = f"{type(e).__name__}: {e}"
             combined["distributions"].append(entry)
 
