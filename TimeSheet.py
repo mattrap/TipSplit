@@ -21,10 +21,11 @@ class TimeSheet:
         self.hovered_row = None
         self.sort_directions = {}
 
-        # NEW: temporary points overrides + editor state
+        # Temporary points overrides + editor state
         self.temp_points_overrides = {}   # row_id -> int
         self.points_editor = None         # Spinbox widget
         self.points_editor_row = None     # row currently being edited
+        self.original_points = {}         # row_id -> standard points
 
         content = ttk.Frame(self.root, padding=10)
         content.pack(fill=BOTH, expand=True)
@@ -36,7 +37,7 @@ class TimeSheet:
         self.create_date_picker(header_frame)
         self.create_confirm_button(header_frame)
 
-        self.status_label = ttk.Label(header_frame, text="", font=("Helvetica", 10))
+        self.status_label = ttk.Label(header_frame, text="", font=("Helvetica", 14))
         self.status_label.pack(side=LEFT, padx=10)
 
         # --- Taller rows style ---
@@ -92,26 +93,33 @@ class TimeSheet:
         self.tree.tag_configure("hover", background="#e0f7fa")
         self.tree.tag_configure("total", font=("Helvetica", 14, "bold"), background="#e8f5e9")
         self.tree.tag_configure("filled", background="#d8eff0")
-        # NEW: highlight when points are temporarily edited
-        self.tree.tag_configure("points_edited", background="#fff3cd")  # soft yellow
+        self.tree.tag_configure("points_edited", background="#fff3cd")  # soft yellow for temp points edits
 
         self.tree.bind("<Button-1>", self.on_click)
         self.tree.bind("<Motion>", self.on_hover)
-        # Commit editor when layout changes / scroll
         self.tree.bind("<Configure>", lambda e: self._end_points_edit(commit=True))
         self.tree.bind("<Button-4>", lambda e: self._end_points_edit(commit=True))  # some Linux
         self.tree.bind("<Button-5>", lambda e: self._end_points_edit(commit=True))
+
+        # Footer with centered reset button
+        footer_frame = ttk.Frame(content)
+        footer_frame.pack(fill=X, pady=(10, 0))
+        footer_frame.columnconfigure(0, weight=1)  # center the single column
+        reset_btn = ttk.Button(
+            footer_frame,
+            text="Réinitialiser heures et points",
+            bootstyle="danger-outline",
+            command=self.reset_hours_and_points
+        )
+        reset_btn.grid(row=0, column=0, pady=6)  # centered by default (no sticky)
 
         self.reload()
 
     def create_date_picker(self, parent):
         ttk.Label(parent, text="Remplir les heures du:", font=("Helvetica", 16, "bold")).pack(side=LEFT)
-
         self.date_picker = DateEntry(parent, bootstyle="primary", dateformat="%d-%m-%Y", width=20)
         self.date_picker.entry.bind("<Key>", lambda e: "break")  # block manual typing
         self.date_picker.pack(side=LEFT, padx=(10, 0))
-
-        # Reset field to blank on startup
         self.date_picker.entry.delete(0, END)
 
     def create_confirm_button(self, parent):
@@ -130,30 +138,33 @@ class TimeSheet:
         return []
 
     def reload(self):
-        # end any active edit
         self._end_points_edit(commit=False)
-
         self.tree.delete(*self.tree.get_children())
         self.service_total_row = None
         self.bussboy_total_row = None
         self.punch_data.clear()
         self.temp_points_overrides.clear()
+        self.original_points.clear()
         self.hovered_row = None
 
         service_data = self.load_data_file(SERVICE_FILE)
         if service_data:
             self.tree.insert("", "end", values=("", "--- Service ---", "", "", "", "", ""), tags=("section",))
             for row in service_data:
-                row_id = self.tree.insert("", "end", values=(row[0], row[1], row[2], "🕒", "", "", ""), tags=("editable",))
+                number, name, points = row[0], row[1], row[2]
+                row_id = self.tree.insert("", "end", values=(number, name, points, "🕒", "", "", ""), tags=("editable",))
                 self.punch_data[row_id] = {"in": "", "out": "", "total": 0.0}
+                self.original_points[row_id] = int(points) if str(points).isdigit() else 0
             self.service_total_row = self.tree.insert("", "end", values=("", "Total Service", "", "", "", "", "0.00"), tags=("total",))
 
         bussboy_data = self.load_data_file(BUSSBOY_FILE)
         if bussboy_data:
             self.tree.insert("", "end", values=("", "--- Bussboy ---", "", "", "", "", ""), tags=("section",))
             for row in bussboy_data:
-                row_id = self.tree.insert("", "end", values=(row[0], row[1], row[2], "🕒", "", "", ""), tags=("editable",))
+                number, name, points = row[0], row[1], row[2]
+                row_id = self.tree.insert("", "end", values=(number, name, points, "🕒", "", "", ""), tags=("editable",))
                 self.punch_data[row_id] = {"in": "", "out": "", "total": 0.0}
+                self.original_points[row_id] = int(points) if str(points).isdigit() else 0
             self.bussboy_total_row = self.tree.insert("", "end", values=("", "Total Bussboy", "", "", "", "", "0.00"), tags=("total",))
 
         self.update_totals()
@@ -162,35 +173,28 @@ class TimeSheet:
         service_total = 0.0
         bussboy_total = 0.0
         in_bussboy = False
-
         for item in self.tree.get_children():
             tags = self.tree.item(item, "tags")
             if "section" in tags:
                 in_bussboy = "Bussboy" in self.tree.item(item, "values")[1]
                 continue
-            if "total" in tags:
+            if "total" in tags or "editable" not in tags:
                 continue
-            if "editable" not in tags:
-                continue
-
             total = self.punch_data.get(item, {}).get("total", 0)
             try:
                 total = float(total)
             except ValueError:
                 total = 0.0
-
             if in_bussboy:
                 bussboy_total += total
             else:
                 service_total += total
-
         if self.service_total_row:
             self.tree.item(self.service_total_row, values=("", "Total Service", "", "", "", "", f"{service_total:.2f}"))
         if self.bussboy_total_row:
             self.tree.item(self.bussboy_total_row, values=("", "Total Bussboy", "", "", "", "", f"{bussboy_total:.2f}"))
 
     def export_filled_rows(self):
-        # end any active edit before reading values
         self._end_points_edit(commit=True)
 
         export_data = []
@@ -260,7 +264,6 @@ class TimeSheet:
     def on_click(self, event):
         region = self.tree.identify("region", event.x, event.y)
         if region != "cell":
-            # click outside cells commits any active points edit
             self._end_points_edit(commit=True)
             return
 
@@ -283,7 +286,6 @@ class TimeSheet:
             PunchClockPopup(self.tree, row_id, self.on_clock_saved)
             return
 
-        # any other editable cell click: just end edit if any
         self._end_points_edit(commit=True)
 
     def on_clock_saved(self, row_id, punch_in, punch_out, total):
@@ -305,7 +307,6 @@ class TimeSheet:
             "total": total_float
         }
 
-        # Add or remove "filled" tag
         tags = list(self.tree.item(row_id, "tags"))
         if total_float > 0 and "filled" not in tags:
             tags.append("filled")
@@ -335,7 +336,6 @@ class TimeSheet:
         self.hovered_row = row_id
 
     def sort_by_column(self, tree, col):
-        # end edit first so value is up-to-date
         self._end_points_edit(commit=True)
 
         direction = self.sort_directions.get(col, False)
@@ -428,6 +428,55 @@ class TimeSheet:
             self.root.after(delay // steps, lambda: step_fade(step + 1))
 
         self.root.after(delay, step_fade)
+
+    # =========================
+    # Reset logic
+    # =========================
+    def reset_hours_and_points(self):
+        """Reset all hours, clock fields, totals, and points back to standard values."""
+        self._end_points_edit(commit=False)
+
+        for item in self.tree.get_children():
+            tags = set(self.tree.item(item, "tags"))
+            if "editable" not in tags:
+                continue
+
+            vals = list(self.tree.item(item, "values"))
+            number, name = vals[0], vals[1]
+
+            # Restore original (standard) points
+            std_points = self.original_points.get(item, vals[2])
+            try:
+                std_points = int(std_points)
+            except (ValueError, TypeError):
+                std_points = vals[2]
+
+            # Reset punch/total visuals
+            new_vals = (number, name, str(std_points), "🕒", "", "", "")
+            self.tree.item(item, values=new_vals)
+
+            # Clear punch data
+            self.punch_data[item] = {"in": "", "out": "", "total": 0.0}
+
+            # Remove highlight tags
+            tags.discard("filled")
+            tags.discard("points_edited")
+            self.tree.item(item, tags=tuple(tags))
+
+        # Clear temp overrides
+        self.temp_points_overrides.clear()
+
+        # Reset totals display rows
+        if self.service_total_row:
+            self.tree.item(self.service_total_row, values=("", "Total Service", "", "", "", "", "0.00"))
+        if self.bussboy_total_row:
+            self.tree.item(self.bussboy_total_row, values=("", "Total Bussboy", "", "", "", "", "0.00"))
+
+        self.status_label.config(
+            text="♻️ Heures et points réinitialisés aux valeurs standard.",
+            foreground="#8B4513"
+        )
+        self.fade_out_status_label()
 
     # =========================
     # Points inline edit helpers
