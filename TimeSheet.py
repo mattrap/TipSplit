@@ -1,6 +1,6 @@
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
-from ttkbootstrap.widgets import DateEntry
+from ttkbootstrap.widgets import DateEntry, Spinbox
 from MenuBar import create_menu_bar
 from PunchClock import PunchClockPopup
 from datetime import datetime
@@ -21,6 +21,11 @@ class TimeSheet:
         self.hovered_row = None
         self.sort_directions = {}
 
+        # NEW: temporary points overrides + editor state
+        self.temp_points_overrides = {}   # row_id -> int
+        self.points_editor = None         # Spinbox widget
+        self.points_editor_row = None     # row currently being edited
+
         content = ttk.Frame(self.root, padding=10)
         content.pack(fill=BOTH, expand=True)
 
@@ -34,18 +39,18 @@ class TimeSheet:
         self.status_label = ttk.Label(header_frame, text="", font=("Helvetica", 10))
         self.status_label.pack(side=LEFT, padx=10)
 
-        # --- Taller rows style (added) ---
+        # --- Taller rows style ---
         style = ttk.Style()
         style.configure(
             "Custom.Treeview",
-            font=("Helvetica", 14),  # bigger text
-            rowheight=35             # taller rows
+            font=("Helvetica", 14),
+            rowheight=35
         )
         style.configure(
             "Custom.Treeview.Heading",
             font=("Helvetica", 14, "bold")
         )
-        # ---------------------------------
+        # -------------------------
 
         # Treeview
         self.tree = ttk.Treeview(
@@ -53,7 +58,7 @@ class TimeSheet:
             columns=("number", "name", "points", "punch", "in", "out", "total"),
             show="headings",
             bootstyle="primary",
-            style="Custom.Treeview"  # applied taller row style
+            style="Custom.Treeview"
         )
         self.tree.configure(selectmode="none")
 
@@ -83,13 +88,19 @@ class TimeSheet:
 
         self.tree.pack(fill=BOTH, expand=True)
 
-        self.tree.tag_configure("section", font=("Helvetica", 16, "bold"), background="#b4c7af") #dark green
+        self.tree.tag_configure("section", font=("Helvetica", 16, "bold"), background="#b4c7af")
         self.tree.tag_configure("hover", background="#e0f7fa")
-        self.tree.tag_configure("total", font=("Helvetica", 14, "bold"), background="#e8f5e9") # light green
-        self.tree.tag_configure("filled", background="#d8eff0")  # after data entered
+        self.tree.tag_configure("total", font=("Helvetica", 14, "bold"), background="#e8f5e9")
+        self.tree.tag_configure("filled", background="#d8eff0")
+        # NEW: highlight when points are temporarily edited
+        self.tree.tag_configure("points_edited", background="#fff3cd")  # soft yellow
 
         self.tree.bind("<Button-1>", self.on_click)
         self.tree.bind("<Motion>", self.on_hover)
+        # Commit editor when layout changes / scroll
+        self.tree.bind("<Configure>", lambda e: self._end_points_edit(commit=True))
+        self.tree.bind("<Button-4>", lambda e: self._end_points_edit(commit=True))  # some Linux
+        self.tree.bind("<Button-5>", lambda e: self._end_points_edit(commit=True))
 
         self.reload()
 
@@ -119,10 +130,14 @@ class TimeSheet:
         return []
 
     def reload(self):
+        # end any active edit
+        self._end_points_edit(commit=False)
+
         self.tree.delete(*self.tree.get_children())
         self.service_total_row = None
         self.bussboy_total_row = None
         self.punch_data.clear()
+        self.temp_points_overrides.clear()
         self.hovered_row = None
 
         service_data = self.load_data_file(SERVICE_FILE)
@@ -175,6 +190,9 @@ class TimeSheet:
             self.tree.item(self.bussboy_total_row, values=("", "Total Bussboy", "", "", "", "", f"{bussboy_total:.2f}"))
 
     def export_filled_rows(self):
+        # end any active edit before reading values
+        self._end_points_edit(commit=True)
+
         export_data = []
         current_section = None
         date_str = self.date_picker.entry.get().strip()
@@ -216,7 +234,7 @@ class TimeSheet:
                     "section": current_section,
                     "number": values[0],
                     "name": values[1],
-                    "points": values[2],
+                    "points": values[2],  # uses edited value if present
                     "in": punch.get("in", ""),
                     "out": punch.get("out", ""),
                     "hours": f"{total:.2f}"
@@ -242,6 +260,8 @@ class TimeSheet:
     def on_click(self, event):
         region = self.tree.identify("region", event.x, event.y)
         if region != "cell":
+            # click outside cells commits any active points edit
+            self._end_points_edit(commit=True)
             return
 
         row_id = self.tree.identify_row(event.y)
@@ -249,10 +269,22 @@ class TimeSheet:
         col_index = int(col.replace("#", "")) - 1
 
         if not row_id or "editable" not in self.tree.item(row_id, "tags"):
+            self._end_points_edit(commit=True)
             return
 
+        # Points column clicked -> begin inline edit
+        if col_index == 2:  # "points"
+            self._begin_points_edit(row_id)
+            return
+
+        # Clock column
         if col_index == 3:  # 🕒 clicked
+            self._end_points_edit(commit=True)
             PunchClockPopup(self.tree, row_id, self.on_clock_saved)
+            return
+
+        # any other editable cell click: just end edit if any
+        self._end_points_edit(commit=True)
 
     def on_clock_saved(self, row_id, punch_in, punch_out, total):
         current = list(self.tree.item(row_id, "values"))
@@ -303,6 +335,9 @@ class TimeSheet:
         self.hovered_row = row_id
 
     def sort_by_column(self, tree, col):
+        # end edit first so value is up-to-date
+        self._end_points_edit(commit=True)
+
         direction = self.sort_directions.get(col, False)
         self.sort_directions[col] = not direction
 
@@ -369,18 +404,16 @@ class TimeSheet:
             return f"#{r:02x}{g:02x}{b:02x}"
 
         try:
-            # Get the current foreground color of the label
             fg_color = self.status_label.cget("foreground")
             original_rgb = tuple(c // 256 for c in self.status_label.winfo_rgb(fg_color))
         except:
-            original_rgb = (0, 0, 0)  # fallback to black
+            original_rgb = (0, 0, 0)
 
         try:
-            # Get the label's background color to fade into
             bg_color = self.status_label.cget("background")
             target_rgb = tuple(c // 256 for c in self.status_label.winfo_rgb(bg_color))
         except:
-            target_rgb = (255, 255, 255)  # fallback to white
+            target_rgb = (255, 255, 255)
 
         def step_fade(step=0):
             if step >= steps:
@@ -395,3 +428,88 @@ class TimeSheet:
             self.root.after(delay // steps, lambda: step_fade(step + 1))
 
         self.root.after(delay, step_fade)
+
+    # =========================
+    # Points inline edit helpers
+    # =========================
+    def _begin_points_edit(self, row_id):
+        # If already editing another row, commit it first
+        if self.points_editor and self.points_editor_row != row_id:
+            self._end_points_edit(commit=True)
+
+        # Compute cell bbox to place the editor
+        bbox = self.tree.bbox(row_id, column="#3")  # points is 3rd column
+        if not bbox:
+            return
+        x, y, w, h = bbox
+
+        # Current value
+        current_vals = list(self.tree.item(row_id, "values"))
+        try:
+            current_points = int(current_vals[2])
+        except (ValueError, TypeError):
+            current_points = 0
+
+        # Create spinbox editor
+        self.points_editor_row = row_id
+        self.points_editor = Spinbox(
+            self.tree,
+            from_=0,
+            to=20,
+            increment=1,
+            width=5,
+            justify="center",
+            bootstyle="warning"
+        )
+        self.points_editor.delete(0, END)
+        self.points_editor.insert(0, str(current_points))
+        self.points_editor.place(x=x, y=y, width=w, height=h)
+
+        # Bindings
+        self.points_editor.focus_set()
+        self.points_editor.bind("<Return>", lambda e: self._end_points_edit(commit=True))
+        self.points_editor.bind("<KP_Enter>", lambda e: self._end_points_edit(commit=True))
+        self.points_editor.bind("<Escape>", lambda e: self._end_points_edit(commit=False))
+        self.points_editor.bind("<FocusOut>", lambda e: self._end_points_edit(commit=True))
+
+    def _end_points_edit(self, commit=True):
+        """Commit/cancel the current points edit if any."""
+        if not self.points_editor:
+            return
+
+        row_id = self.points_editor_row
+        val_str = self.points_editor.get()
+
+        # destroy widget first (avoid re-entrancy)
+        try:
+            self.points_editor.destroy()
+        finally:
+            self.points_editor = None
+            self.points_editor_row = None
+
+        if not row_id or not self.tree.exists(row_id):
+            return
+
+        if commit:
+            try:
+                new_points = int(val_str)
+                new_points = max(0, min(20, new_points))
+            except (ValueError, TypeError):
+                return  # ignore bad value, keep old
+
+            vals = list(self.tree.item(row_id, "values"))
+            old_points = vals[2]
+            if str(new_points) != str(old_points):
+                vals[2] = str(new_points)
+                self.tree.item(row_id, values=vals)
+
+                # mark as temporarily edited
+                tags = set(self.tree.item(row_id, "tags"))
+                tags.add("points_edited")
+                self.tree.item(row_id, tags=tuple(tags))
+
+                # track override for this session
+                self.temp_points_overrides[row_id] = new_points
+        else:
+            # cancel: no changes
+            pass
