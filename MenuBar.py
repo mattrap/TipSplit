@@ -12,6 +12,10 @@ from AppConfig import (
     get_auto_check_updates, set_auto_check_updates,  # toggle for auto updates
 )
 
+from updater import check_for_update
+from version import APP_NAME, APP_VERSION
+
+
 def _open_path_cross_platform(path: str):
     """Open a folder/file with the OS default file manager."""
     if not path:
@@ -148,10 +152,25 @@ def create_menu_bar(root, app):
     summary_button["menu"] = summary_menu
     summary_button.pack(side=LEFT, padx=5)
 
-    # Spacer
+    # Spacer to push help/clock to the right
     ttk.Label(menu_bar).pack(side=LEFT, expand=True)
 
-    # Clock (right-aligned)
+    # >>> added: Aide (About + Updater) on the right
+    help_button = ttk.Menubutton(menu_bar, text="Aide", bootstyle=SECONDARY)
+    help_menu = ttk.Menu(help_button, tearoff=0)
+    help_menu.add_command(
+        label=f"À propos de {APP_NAME} (v{APP_VERSION})",
+        command=lambda: messagebox.showinfo("À propos", f"{APP_NAME} v{APP_VERSION}")
+    )
+    help_menu.add_separator()
+    help_menu.add_command(
+        label="Vérifier les mises à jour…",
+        command=lambda: check_for_update(root)
+    )
+    help_button["menu"] = help_menu
+    help_button.pack(side=RIGHT, padx=5)
+
+    # Clock (right-aligned; stays at the far right)
     clock_label = ttk.Label(menu_bar, font=("Helvetica", 10))
     clock_label.pack(side=RIGHT, padx=10)
 
