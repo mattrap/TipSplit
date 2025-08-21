@@ -8,10 +8,9 @@ from typing import Optional, Dict, Any
 from version import APP_NAME, APP_VERSION
 from AppConfig import get_auto_check_updates, load_config
 
-# -------- EDIT THESE 2 LINES --------
 GITHUB_OWNER = "mattrap"
 GITHUB_REPO  = "TipSplit"
-# ------------------------------------
+
 
 API_LATEST   = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/releases/latest"
 API_RELEASES = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/releases"
