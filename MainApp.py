@@ -26,7 +26,6 @@ class TipSplitApp:
         self.create_master_tab()
         self.create_timesheet_tab()
         self.create_distribution_tab()
-        self.create_pay_tab()
 
         create_menu_bar(self.root, self)
 
@@ -60,7 +59,6 @@ class TipSplitApp:
         )
         self.shared_data["distribution_tab"] = self.distribution_tab
 
-
     def create_pay_tab(self):
         self.pay_frame = ttk.Frame(self.notebook)
         self.notebook.add(self.pay_frame, text="Pay")
@@ -87,6 +85,15 @@ class TipSplitApp:
         elif str(self.json_viewer_frame) not in self.notebook.tabs():
             self.notebook.add(self.json_viewer_frame, text="Modifier la distribution")
         self.notebook.select(self.json_viewer_frame)
+
+    def show_pay_tab(self):
+        if not hasattr(self, "pay_tab"):
+            self.pay_frame = ttk.Frame(self.notebook)
+            self.pay_tab = PayTab(self.pay_frame)
+            self.notebook.add(self.pay_frame, text="Pay")
+        elif str(self.pay_frame) not in self.notebook.tabs():
+            self.notebook.add(self.pay_frame, text="Pay")
+        self.notebook.select(self.pay_frame)
 
     def reload_distribution_tab(self):
         if hasattr(self, "distribution_tab"):

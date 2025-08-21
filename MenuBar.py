@@ -2,13 +2,14 @@ import os
 import platform
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
-from tkinter import filedialog, messagebox
+from tkinter import filedialog, messagebox, BooleanVar
 from datetime import datetime
 
 # Config helpers
 from AppConfig import (
     get_pdf_dir, set_pdf_dir, ensure_pdf_dir_selected,
-    get_backend_dir, set_backend_dir
+    get_backend_dir, set_backend_dir,
+    get_auto_check_updates, set_auto_check_updates,  # toggle for auto updates
 )
 
 def _open_path_cross_platform(path: str):
@@ -68,7 +69,6 @@ def create_menu_bar(root, app):
     open_button = ttk.Menubutton(menu_bar, text="Ouvrir")
     open_menu = ttk.Menu(open_button, tearoff=0)
     open_menu.add_command(label="Feuille d'employés", command=app.authenticate_and_show_master)
-    open_menu.add_command(label="Modification de distribution", command=app.show_json_viewer_tab)
     open_button["menu"] = open_menu
     open_button.pack(side=LEFT, padx=5)
 
@@ -78,7 +78,7 @@ def create_menu_bar(root, app):
 
     # PDF export root
     settings_menu.add_command(
-        label="Dossier d’exportation PDF…",
+        label="Modifier le dossier d’exportation PDF…",
         command=lambda: _choose_pdf_export_dir(root)
     )
     settings_menu.add_command(
@@ -96,11 +96,11 @@ def create_menu_bar(root, app):
 
     # Backend (JSON) root
     settings_menu.add_command(
-        label="Dossier backend (JSON)…",
+        label="Modifier le dossier d'exportation",
         command=lambda: _choose_backend_dir(root)
     )
     settings_menu.add_command(
-        label="Ouvrir le dossier backend",
+        label="Ouvrir le dossier d'exportation",
         command=lambda: _open_path_cross_platform(get_backend_dir())
     )
 
@@ -111,13 +111,40 @@ def create_menu_bar(root, app):
         command=lambda: ensure_pdf_dir_selected(root)
     )
 
+    # ---- Auto-update toggle ----
+    settings_menu.add_separator()
+    _auto_updates_var = BooleanVar(value=get_auto_check_updates())
+
+    def _toggle_auto_updates():
+        try:
+            set_auto_check_updates(_auto_updates_var.get())
+        except Exception as e:
+            _auto_updates_var.set(get_auto_check_updates())
+            messagebox.showerror("Erreur", f"Impossible de sauvegarder le réglage:\n{e}")
+
+    settings_menu.add_checkbutton(
+        label="Vérifier automatiquement les mises à jour",
+        variable=_auto_updates_var,
+        command=_toggle_auto_updates
+    )
+
     settings_button["menu"] = settings_menu
     settings_button.pack(side=LEFT, padx=5)
 
-    # ----- Summary (placeholder) -----
+    # ----- Summary -----
     summary_button = ttk.Menubutton(menu_bar, text="Summary")
     summary_menu = ttk.Menu(summary_button, tearoff=0)
-    summary_menu.add_command(label="View Summary", command=lambda: None)
+
+    # These call methods you added in MainApp to lazily create/show the tabs
+    summary_menu.add_command(
+        label="Rapport de paye",
+        command=app.show_pay_tab
+    )
+    summary_menu.add_command(
+        label="Visualiser les distributions (JSON)",
+        command=app.show_json_viewer_tab
+    )
+
     summary_button["menu"] = summary_menu
     summary_button.pack(side=LEFT, padx=5)
 
