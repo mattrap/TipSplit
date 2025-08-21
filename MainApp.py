@@ -8,6 +8,8 @@ from tkinter.simpledialog import askstring
 from tkinter import messagebox
 from Pay import PayTab
 from AppConfig import ensure_pdf_dir_selected
+from updater import maybe_auto_check
+from version import APP_NAME, APP_VERSION
 
 
 class TipSplitApp:
@@ -15,6 +17,7 @@ class TipSplitApp:
         self.root = root
         self.root.title("TipSplit")
         self.root.geometry("800x850")
+        self.root.title(f"{APP_NAME} v{APP_VERSION}")
 
         ensure_pdf_dir_selected(self.root)
 
@@ -28,6 +31,9 @@ class TipSplitApp:
         self.create_distribution_tab()
 
         create_menu_bar(self.root, self)
+
+        self.root.after(2000, lambda: maybe_auto_check(self.root))
+
 
     def create_master_tab(self):
         self.master_frame = ttk.Frame(self.notebook)
