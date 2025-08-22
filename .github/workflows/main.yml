@@ -3,6 +3,7 @@ name: Build Windows Installer
 on:
   push:
     tags: ['v*']   # runs when you push a tag like v1.0.0
+  workflow_dispatch: {}  # (optional) allows manual Runs from Actions tab
 
 permissions:
   contents: write   # needed to create a Release
