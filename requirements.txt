@@ -1,0 +1,4 @@
+charset-normalizer==3.4.2
+pillow==10.4.0
+reportlab==4.4.2
+ttkbootstrap==1.13.11
