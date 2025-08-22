@@ -2,18 +2,17 @@ name: Build Windows Installer
 
 on:
   push:
-    tags: ['v*']   # runs when you push a tag like v1.0.0
-  workflow_dispatch: {}  # (optional) allows manual Runs from Actions tab
+    tags: ['v*']           # builds when you push a tag like v1.0.4
+  workflow_dispatch: {}     # (optional) lets you click “Run workflow”
 
 permissions:
-  contents: write   # needed to create a Release
+  contents: write           # needed to upload to Releases
 
 jobs:
   build:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -29,22 +28,21 @@ jobs:
         shell: pwsh
         run: |
           $c = Get-Content -Raw version.py
-          if ($c -match 'APP_VERSION\s*=\s*\"([0-9\.]+)\"') { "ver=$($Matches[1])" >> $env:GITHUB_OUTPUT } else { exit 1 }
+          if ($c -match 'APP_VERSION\s*=\s*"([0-9\.]+)"') { "ver=$($Matches[1])" >> $env:GITHUB_OUTPUT } else { exit 1 }
 
-      - name: Build EXE with PyInstaller
-        # bundles your JSON files inside the app
+      - name: Build EXE (PyInstaller)
+        shell: pwsh
         run: >
           pyinstaller --noconsole --name TipSplit
           --add-data "service_employees.json;."
           --add-data "bussboy_employees.json;."
           MainApp.py
-        shell: pwsh
 
       - name: Install Inno Setup
-        run: choco install innosetup --no-progress -y
         shell: pwsh
+        run: choco install innosetup --no-progress -y
 
-      - name: Build Windows Installer (Inno Setup)
+      - name: Build Windows installer (Inno Setup)
         shell: pwsh
         run: |
           Set-Content -Path installer.iss -Value @"
@@ -69,7 +67,7 @@ Filename: "{app}\{#MyAppExeName}"; Flags: nowait postinstall skipifsilent
 "@
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss
 
-      - name: Upload installer artifact
+      - name: Upload installer as artifact
         uses: actions/upload-artifact@v4
         with:
           name: TipSplit-Setup
@@ -83,7 +81,8 @@ Filename: "{app}\{#MyAppExeName}"; Flags: nowait postinstall skipifsilent
         with:
           name: TipSplit-Setup
           path: .
-      - uses: softprops/action-gh-release@v2
+      - name: Attach to GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
           files: TipSplit-Setup-*.exe
           draft: false
