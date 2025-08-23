@@ -6,12 +6,6 @@
         ""
     ],
     [
-        15,
-        "Manon Couture",
-        9,
-        ""
-    ],
-    [
         21,
         "Caroline Jacques",
         10,
@@ -21,6 +15,12 @@
         22,
         "Allysiah Philemond",
         10,
+        ""
+    ],
+    [
+        15,
+        "Manon Couture",
+        9,
         ""
     ],
     [
@@ -95,8 +95,18 @@
         7
     ],
     [
+        73,
+        "Thomas Bousquet ",
+        7
+    ],
+    [
         43,
         "Annie Veilleux ",
         5
+    ],
+    [
+        37,
+        "Maxence Beaudry",
+        7
     ]
 ]

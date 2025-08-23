@@ -20,6 +20,13 @@ class MasterSheet:
         self.on_save_callback = on_save_callback
         self.shared_data = shared_data or {}
 
+        # ---------- STYLE: increase Treeview row height ----------
+        style = ttk.Style()
+        # Apply to the base style...
+        style.configure("Treeview", rowheight=25)
+        # ...and to the ttkbootstrap variant used by bootstyle="primary"
+        style.configure("primary.Treeview", rowheight=34)
+
         # Header Frame
         header_frame = ttk.Frame(self.root)
         header_frame.pack(fill=X, pady=(10, 0), padx=10)
@@ -221,7 +228,7 @@ class MasterSheet:
         self.save_data(self.service_tree, DATA_FILE_SERVICE, key="service")
         self.save_data(self.bussboy_tree, DATA_FILE_BUSSBOY, key="bussboy")
         self.set_unsaved_changes(False)
-        messagebox.showinfo("Saved", "All changes have been saved successfully.")
+        messagebox.showinfo("Sauvegardé!", "Les changements ont été effectués avec succès")
         if self.on_save_callback:
             self.on_save_callback()
 
@@ -233,9 +240,9 @@ class MasterSheet:
     def set_unsaved_changes(self, value: bool):
         self.unsaved_changes = value
         if value and not self.save_button:
-            self.back_button = ttk.Button(self.button_container, text="↩️ Back", bootstyle=SECONDARY, command=self.discard_changes)
+            self.back_button = ttk.Button(self.button_container, text="↩️ ANNULER", bootstyle=SECONDARY, command=self.discard_changes)
             self.back_button.pack(side=LEFT, padx=5)
-            self.save_button = ttk.Button(self.button_container, text="📅 Save", bootstyle=INFO, command=self.save_all_data)
+            self.save_button = ttk.Button(self.button_container, text="📅 SAUVEGARDER", bootstyle=INFO, command=self.save_all_data)
             self.save_button.pack(side=LEFT)
         elif not value:
             if self.save_button:
