@@ -1,27 +1,59 @@
-; installer.iss  (checked into your repo)
+; --- installer.iss ---
+
 #define MyAppName "TipSplit"
 #define MyAppExeName "TipSplit.exe"
-
-; MyAppVersion will be injected from the CI command line.
-#ifndef MyAppVersion
-  #define MyAppVersion "0.0.0"
-#endif
+#define MyAppVersion GetStringParam("MyAppVersion", "0.0.0")
+#define MyAppPublisher "Mathias Tessier"
 
 [Setup]
+AppId={{6C7B8BF8-CE9D-4C6D-A3C0-6E3D6BEF44E3}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
+AppPublisher={#MyAppPublisher}
 DefaultDirName={autopf}\{#MyAppName}
+DefaultGroupName={#MyAppName}
+DisableProgramGroupPage=yes
 OutputDir=dist\installer
 OutputBaseFilename={#MyAppName}-Setup-{#MyAppVersion}
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
+ArchitecturesInstallIn64BitMode=x64
+PrivilegesRequired=admin
+PrivilegesRequiredOverridesAllowed=dialog
+UninstallDisplayIcon={app}\{#MyAppExeName}
+; Point to assets/icons/app_icon.ico
+SetupIconFile=assets\icons\app_icon.ico
+
+[Languages]
+Name: "english"; MessagesFile: "compiler:Default.isl"
+Name: "french";  MessagesFile: "compiler:Languages\French.isl"
+
+[Tasks]
+Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional icons:"; Flags: unchecked
 
 [Files]
-Source: "dist\TipSplit\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
+; PyInstaller build output
+Source: "dist\TipSplit\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
+
+; Ship read-only defaults
+Source: "defaults\service_employees.json"; DestDir: "{app}\defaults"; Flags: ignoreversion createallsubdirs
+Source: "defaults\bussboy_employees.json"; DestDir: "{app}\defaults"; Flags: ignoreversion createallsubdirs
+
+; Seed user backend on first install only
+Source: "defaults\service_employees.json"; \
+    DestDir: "{userappdata}\TipSplit\backend"; Flags: onlyifdoesntexist ignoreversion createallsubdirs
+Source: "defaults\bussboy_employees.json"; \
+    DestDir: "{userappdata}\TipSplit\backend"; Flags: onlyifdoesntexist ignoreversion createallsubdirs
+
+[InstallDelete]
+Type: files; Name: "{app}\service_employees.json"
+Type: files; Name: "{app}\bussboy_employees.json"
 
 [Icons]
-Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
+Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
+Name: "{group}\Uninstall {#MyAppName}"; Filename: "{uninstallexe}"
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent
