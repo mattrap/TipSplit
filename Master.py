@@ -1,15 +1,21 @@
+# Master.py — uses AppConfig-backed, writable employee files (portable- & installer-safe)
+
+import json
+import os
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 from tkinter import messagebox
 from MenuBar import create_menu_bar
-import json
-import os
 
-DATA_FILE_SERVICE = "service_employees.json"
-DATA_FILE_BUSSBOY = "bussboy_employees.json"
+from AppConfig import ensure_employee_data_ready, get_employee_files
+
 
 class MasterSheet:
     def __init__(self, frame, on_save_callback=None, shared_data=None):
+        # Ensure backend files exist and are writable; returns (service_path, bussboy_path)
+        ensure_employee_data_ready()
+        self.service_path, self.bussboy_path = get_employee_files()
+
         self.sort_directions = {}
         self.root = frame
         self.unsaved_changes = False
@@ -34,12 +40,17 @@ class MasterSheet:
         self.button_container = ttk.Frame(header_frame)
         self.button_container.pack(side=RIGHT)
 
+        # Tables
         self.service_tree = self.create_table_section(self.root, "Service", self.add_service_row, self.delete_service_row)
         self.bussboy_tree = self.create_table_section(self.root, "Bussboy", self.add_bussboy_row, self.delete_bussboy_row)
 
-        self.load_data(self.service_tree, DATA_FILE_SERVICE, key="service")
-        self.load_data(self.bussboy_tree, DATA_FILE_BUSSBOY, key="bussboy")
+        # Initial load
+        self.load_data(self.service_tree, self.service_path, key="service")
+        self.load_data(self.bussboy_tree, self.bussboy_path, key="bussboy")
 
+    # ---------------------------
+    # Column helpers & validation
+    # ---------------------------
     @staticmethod
     def _is_int_column(index: int) -> bool:
         # columns: number(0), name(1), points(2)
@@ -60,7 +71,9 @@ class MasterSheet:
             return s[1:].isdigit()
         return s.isdigit()
 
-
+    # ---------------------------
+    # UI construction
+    # ---------------------------
     def create_table_section(self, root, title, add_callback, delete_callback):
         frame = ttk.Frame(root)
         frame.pack(pady=(10, 5), fill=X)
@@ -77,7 +90,10 @@ class MasterSheet:
             tree.heading(col, text=col.capitalize(), command=lambda c=col, t=tree: self.sort_column(c, t))
         self._configure_columns(tree)
         tree.pack(side=LEFT, fill=BOTH, expand=True)
-        ttk.Scrollbar(table_frame, orient=VERTICAL, command=tree.yview).pack(side=RIGHT, fill=Y)
+
+        scroll = ttk.Scrollbar(table_frame, orient=VERTICAL, command=tree.yview)
+        scroll.pack(side=RIGHT, fill=Y)
+        tree.configure(yscrollcommand=scroll.set)
 
         tree.tag_configure("evenrow", background="#f2f2f2")
         tree.tag_configure("oddrow", background="#ffffff")
@@ -92,10 +108,13 @@ class MasterSheet:
         return tree
 
     def _configure_columns(self, tree):
-        tree.column("number", width=100, anchor=CENTER)
-        tree.column("name", width=200, anchor=W)
-        tree.column("points", width=100, anchor=CENTER)
+        tree.column("number", width=120, anchor=CENTER)
+        tree.column("name", width=260, anchor=W)
+        tree.column("points", width=120, anchor=CENTER)
 
+    # ---------------------------
+    # Sorting
+    # ---------------------------
     def sort_column(self, col, tree):
         self.sort_directions.setdefault(tree, {})
         reverse = self.sort_directions[tree].get(col, False)
@@ -105,7 +124,7 @@ class MasterSheet:
         try:
             data.sort(key=lambda t: float(t[0]), reverse=reverse)
         except ValueError:
-            data.sort(key=lambda t: t[0].lower(), reverse=reverse)
+            data.sort(key=lambda t: str(t[0]).lower(), reverse=reverse)
 
         for index, (_, k) in enumerate(data):
             tree.move(k, '', index)
@@ -117,10 +136,11 @@ class MasterSheet:
                 label += arrow
             tree.heading(col_name, text=label, command=lambda c=col_name, t=tree: self.sort_column(c, t))
 
-        for i, item in enumerate(tree.get_children()):
-            tag = "evenrow" if i % 2 == 0 else "oddrow"
-            tree.item(item, tags=(tag,))
+        self.restripe_rows(tree)
 
+    # ---------------------------
+    # Row add/delete
+    # ---------------------------
     def add_service_row(self):
         self._add_row(self.service_tree)
 
@@ -144,7 +164,7 @@ class MasterSheet:
         if len(selected) != 1:
             messagebox.showwarning("Erreur", "Sélectionnez qu'une seule rangée")
             return
-        confirm = messagebox.askyesno("Confirmer la suppression", "Voulez vous vraiment supprimer cette rangée?")
+        confirm = messagebox.askyesno("Confirmer la suppression", "Voulez-vous vraiment supprimer cette rangée?")
         if not confirm:
             return
         tree.delete(selected[0])
@@ -156,6 +176,9 @@ class MasterSheet:
             tag = "evenrow" if i % 2 == 0 else "oddrow"
             tree.item(item, tags=(tag,))
 
+    # ---------------------------
+    # Inline editing
+    # ---------------------------
     def on_double_click(self, event):
         tree = event.widget
         region = tree.identify("region", event.x, event.y)
@@ -168,7 +191,10 @@ class MasterSheet:
             return
 
         # Cell geometry & current value
-        x, y, width, height = tree.bbox(row_id, column)
+        bbox = tree.bbox(row_id, column)
+        if not bbox:
+            return
+        x, y, width, height = bbox
         values = list(tree.item(row_id)["values"])
         original_value = values[column_index] if column_index < len(values) else ""
 
@@ -227,12 +253,15 @@ class MasterSheet:
         editor.bind("<FocusOut>", save_edit)  # commit on blur
         editor.bind("<Escape>", cancel_edit)  # revert silently
 
+    # ---------------------------
+    # UX niceties
+    # ---------------------------
     def show_context_menu(self, event, tree):
         selected = tree.identify_row(event.y)
         if selected:
             tree.selection_set(selected)
             menu = ttk.Menu(tree, tearoff=0)
-            menu.add_command(label="Delete Row", command=lambda: self._delete_selected_row(tree))
+            menu.add_command(label="Supprimer la rangée", command=lambda: self._delete_selected_row(tree))
             menu.tk_popup(event.x_root, event.y_root)
 
     def highlight_selected(self, tree):
@@ -263,39 +292,60 @@ class MasterSheet:
                 tree.item(row_id, tags=("hover",))
                 self.hovered_rows[tree] = {"row": row_id, "base_tag": base}
 
+    # ---------------------------
+    # Persistence (AppConfig paths)
+    # ---------------------------
     def save_data(self, tree, filename, key):
         data = [tree.item(item)["values"] for item in tree.get_children()]
         if self.shared_data is not None:
             self.shared_data[key] = data
-        with open(filename, "w") as f:
-            json.dump(data, f, indent=4)
+        try:
+            os.makedirs(os.path.dirname(filename), exist_ok=True)
+            with open(filename, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+                f.write("\n")
+        except Exception as e:
+            messagebox.showerror("Erreur", f"Impossible de sauvegarder le fichier:\n{filename}\n\n{e}")
 
     def load_data(self, tree, filename, key=None):
+        # Clear table
         tree.delete(*tree.get_children())
-        if os.path.exists(filename):
-            with open(filename, "r") as f:
-                data = json.load(f)
-                for i, row in enumerate(data):
-                    # Insert exactly as in file (no coercion)
-                    tag = "evenrow" if i % 2 == 0 else "oddrow"
-                    tree.insert("", "end", values=row, tags=(tag,))
-            if key:
-                self.shared_data[key] = data
+
+        data = []
+        try:
+            if os.path.exists(filename):
+                with open(filename, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    if not isinstance(data, list):
+                        data = []
+        except Exception:
+            # Treat as empty if corrupt; AppConfig seeding should have handled corruption too
+            data = []
+
+        for i, row in enumerate(data):
+            # Insert exactly as in file (no coercion)
+            tag = "evenrow" if i % 2 == 0 else "oddrow"
+            tree.insert("", "end", values=row, tags=(tag,))
+
+        if key is not None and self.shared_data is not None:
+            self.shared_data[key] = data
+
+        # Default: sort by points descending on load
         self.sort_directions.setdefault(tree, {})
         self.sort_directions[tree]["points"] = True
         self.sort_column("points", tree)
 
     def save_all_data(self):
-        self.save_data(self.service_tree, DATA_FILE_SERVICE, key="service")
-        self.save_data(self.bussboy_tree, DATA_FILE_BUSSBOY, key="bussboy")
+        self.save_data(self.service_tree, self.service_path, key="service")
+        self.save_data(self.bussboy_tree, self.bussboy_path, key="bussboy")
         self.set_unsaved_changes(False)
         messagebox.showinfo("Sauvegardé!", "Les changements ont été effectués avec succès")
         if self.on_save_callback:
             self.on_save_callback()
 
     def discard_changes(self):
-        self.load_data(self.service_tree, DATA_FILE_SERVICE, key="service")
-        self.load_data(self.bussboy_tree, DATA_FILE_BUSSBOY, key="bussboy")
+        self.load_data(self.service_tree, self.service_path, key="service")
+        self.load_data(self.bussboy_tree, self.bussboy_path, key="bussboy")
         self.set_unsaved_changes(False)
 
     def set_unsaved_changes(self, value: bool):
@@ -313,9 +363,10 @@ class MasterSheet:
                 self.back_button.destroy()
                 self.back_button = None
 
+
 # Run standalone
 if __name__ == "__main__":
     app_root = ttk.Window(themename="flatly")
-    clock_label = create_menu_bar(app_root)
+    create_menu_bar(app_root)
     MasterSheet(app_root)
     app_root.mainloop()

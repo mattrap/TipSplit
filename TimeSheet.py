@@ -1,27 +1,26 @@
+# TimeSheet.py — uses AppConfig-backed, writable employee files
+
+import json
+import os
+from datetime import datetime
+
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 from ttkbootstrap.widgets import DateEntry, Spinbox
 from MenuBar import create_menu_bar
 from PunchClock import PunchClockPopup
-from datetime import datetime
-import json
-import os
-from AppConfig import get_employee_files, ensure_default_employee_files
+from tkinter import END
+
+# Use the centralized AppConfig helpers so paths work on all machines
+from AppConfig import ensure_employee_data_ready
 
 
 class TimeSheet:
     def __init__(self, root, shared_data=None, reload_distribution_data=None):
-        # Ensure backend employee files exist (safe no-op if already present)
-        try:
-            ensure_default_employee_files()
-        except Exception:
-            # Don't block UI if something went wrong here; Distribution tab will still show errors during export
-            pass
+        # Ensure backend employee files exist and resolve their paths
+        self.service_file, self.bussboy_file = ensure_employee_data_ready()
 
-        # Resolve backend file paths (AppData or portable "data/")
-        self.service_file, self.bussboy_file = get_employee_files()
-
-        self.shared_data = shared_data
+        self.shared_data = shared_data or {}
         self.reload_distribution_data = reload_distribution_data
         self.root = root
         self.service_total_row = None
@@ -51,26 +50,27 @@ class TimeSheet:
 
         # --- Taller rows style ---
         style = ttk.Style()
-        style.configure(
-            "Custom.Treeview",
-            font=("Helvetica", 14),
-            rowheight=35
-        )
-        style.configure(
-            "Custom.Treeview.Heading",
-            font=("Helvetica", 14, "bold")
-        )
+        style.configure("Custom.Treeview", font=("Helvetica", 14), rowheight=35)
+        style.configure("Custom.Treeview.Heading", font=("Helvetica", 14, "bold"))
         # -------------------------
 
-        # Treeview
+        # Treeview + scrollbar
+        tree_frame = ttk.Frame(content)
+        tree_frame.pack(fill=BOTH, expand=True)
+
         self.tree = ttk.Treeview(
-            content,
+            tree_frame,
             columns=("number", "name", "points", "punch", "in", "out", "total"),
             show="headings",
             bootstyle="primary",
-            style="Custom.Treeview"
+            style="Custom.Treeview",
+            selectmode="none",
         )
-        self.tree.configure(selectmode="none")
+
+        scroll = ttk.Scrollbar(tree_frame, orient=VERTICAL, command=self.tree.yview)
+        self.tree.configure(yscrollcommand=scroll.set)
+        self.tree.pack(side=LEFT, fill=BOTH, expand=True)
+        scroll.pack(side=RIGHT, fill=Y)
 
         self.base_labels = {
             "number": "Numéro",
@@ -79,7 +79,7 @@ class TimeSheet:
             "punch": "🕒",
             "in": "Entrée",
             "out": "Sortie",
-            "total": "Total"
+            "total": "Total",
         }
 
         for col, label in self.base_labels.items():
@@ -95,8 +95,6 @@ class TimeSheet:
         self.tree.column("in", width=80, anchor=CENTER)
         self.tree.column("out", width=80, anchor=CENTER)
         self.tree.column("total", width=80, anchor=CENTER)
-
-        self.tree.pack(fill=BOTH, expand=True)
 
         self.tree.tag_configure("section", font=("Helvetica", 16, "bold"), background="#b4c7af")
         self.tree.tag_configure("hover", background="#e0f7fa")
@@ -371,7 +369,7 @@ class TimeSheet:
             try:
                 return float(val)
             except ValueError:
-                return val.lower()
+                return str(val).lower()
 
         sections = []
         current_section = []
@@ -416,10 +414,7 @@ class TimeSheet:
             if count >= 8:
                 entry.configure(style=original_style)
                 return
-            if count % 2 == 0:
-                entry.configure(style="danger.TEntry")
-            else:
-                entry.configure(style="TEntry")
+            entry.configure(style="danger.TEntry" if count % 2 == 0 else "TEntry")
             entry.after(150, lambda: flash(count + 1))
 
         flash()

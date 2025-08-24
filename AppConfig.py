@@ -39,7 +39,13 @@ DEFAULTS: Dict[str, Any] = {
 # Portable mode detection
 # ----------------------------
 def _is_portable() -> bool:
-    """Portable if TIPSLIT_PORTABLE=1 or a 'portable.flag' file sits next to the executable/script."""
+    """
+    Portable if TIPSPLIT_PORTABLE=1 (preferred) or legacy TIPSLIT_PORTABLE=1,
+    or a 'portable.flag' file sits next to the executable/script.
+    """
+    if os.environ.get("TIPSPLIT_PORTABLE", "").strip() == "1":
+        return True
+    # Back-compat for earlier typo
     if os.environ.get("TIPSLIT_PORTABLE", "").strip() == "1":
         return True
     try:
@@ -67,6 +73,7 @@ def _resource_base() -> str:
     return getattr(sys, "_MEIPASS", _program_base())
 
 def _resource_path(relative_path: str) -> str:
+    """Resolve a path inside the read-only resources (bundled with the app)."""
     return os.path.join(_resource_base(), relative_path)
 
 # ----------------------------
@@ -103,7 +110,7 @@ def _expand_norm(path: str) -> str:
         return ""
     return os.path.normpath(os.path.expanduser(path))
 
-def _atomic_write_json(path: str, data: Dict[str, Any]):
+def _atomic_write_json(path: str, data):
     tmp_dir = os.path.dirname(path) or "."
     fd, tmp = tempfile.mkstemp(prefix=".cfg_", dir=tmp_dir, text=True)
     try:
@@ -254,10 +261,10 @@ def ensure_default_employee_files(defaults_subdir: str = "defaults") -> None:
 
     # Service
     if _load_json_or_none(svc_path) is None:
-        # If default is missing (developer mistake), fall back to a minimal template
         if os.path.exists(default_service_src):
             shutil.copyfile(default_service_src, svc_path)
         else:
+            # Minimal template fallback
             _atomic_write_json(svc_path, [
                 [1, "SERVEUR À REMPLIR 1", 7, ""],
                 [2, "SERVEUR À REMPLIR 2", 7, ""]
@@ -272,6 +279,15 @@ def ensure_default_employee_files(defaults_subdir: str = "defaults") -> None:
                 [101, "BUSSBOY À REMPLIR 1", 3, ""],
                 [102, "BUSSBOY À REMPLIR 2", 3, ""]
             ])
+
+# Convenience: call once at app startup
+def ensure_employee_data_ready(defaults_subdir: str = "defaults") -> Tuple[str, str]:
+    """
+    Ensure backend directory exists and employee files are seeded.
+    Returns the resolved paths (service, bussboy).
+    """
+    ensure_default_employee_files(defaults_subdir=defaults_subdir)
+    return get_employee_files()
 
 # ----------------------------
 # Public API (used by the app) — PDF export dir
@@ -309,9 +325,7 @@ def ensure_pdf_dir_selected(root=None) -> str:
         selected = _expand_norm(selected)
         if selected:
             _safe_mkdir(selected)
-        else:
-            # Allow empty; user can set it later via settings
-            pass
+        # Allow empty; user can set it later via settings
 
         cfg["exports_pdf_dir"] = selected
         save_config(cfg)
@@ -340,12 +354,13 @@ def open_config_folder():
     """Open the folder where config lives (useful for a menu item)."""
     path = _user_data_base()
     try:
-        if platform.system().lower() == "windows":
+        system = platform.system().lower()
+        if system == "windows":
             os.startfile(path)  # type: ignore[attr-defined]
-        elif platform.system().lower() == "darwin":
+        elif system == "darwin":
             os.system(f'open "{path}"')
         else:
-            os.system(f'xdg-open "{path}" >/dev/null 2&>1 &')
+            os.system(f'xdg-open "{path}" >/dev/null 2>&1 &')
     except Exception:
         pass
 
