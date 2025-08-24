@@ -20,12 +20,10 @@ class MasterSheet:
         self.on_save_callback = on_save_callback
         self.shared_data = shared_data or {}
 
-        # ---------- STYLE: increase Treeview row height ----------
+        # ---------- STYLE: Treeview row height ----------
         style = ttk.Style()
-        # Apply to the base style...
-        style.configure("Treeview", rowheight=25)
-        # ...and to the ttkbootstrap variant used by bootstyle="primary"
-        style.configure("primary.Treeview", rowheight=34)
+        style.configure("Treeview", rowheight=25)         # base
+        style.configure("primary.Treeview", rowheight=34) # bootstyle="primary"
 
         # Header Frame
         header_frame = ttk.Frame(self.root)
@@ -41,6 +39,27 @@ class MasterSheet:
 
         self.load_data(self.service_tree, DATA_FILE_SERVICE, key="service")
         self.load_data(self.bussboy_tree, DATA_FILE_BUSSBOY, key="bussboy")
+
+    @staticmethod
+    def _is_int_column(index: int) -> bool:
+        # columns: number(0), name(1), points(2)
+        return index in (0, 2)
+
+    @staticmethod
+    def _is_int(value: str) -> bool:
+        """
+        Strict integer check after trimming spaces.
+        Accepts optional leading '-' for negatives (remove to allow only positives).
+        """
+        if value is None:
+            return False
+        s = str(value).strip()
+        if not s:
+            return False
+        if s.startswith("-"):
+            return s[1:].isdigit()
+        return s.isdigit()
+
 
     def create_table_section(self, root, title, add_callback, delete_callback):
         frame = ttk.Frame(root)
@@ -123,9 +142,9 @@ class MasterSheet:
     def _delete_selected_row(self, tree):
         selected = tree.selection()
         if len(selected) != 1:
-            messagebox.showwarning("Select One Row", "Please select exactly one row to delete.")
+            messagebox.showwarning("Erreur", "Sélectionnez qu'une seule rangée")
             return
-        confirm = messagebox.askyesno("Confirm Deletion", "Are you sure you want to delete the selected row?")
+        confirm = messagebox.askyesno("Confirmer la suppression", "Voulez vous vraiment supprimer cette rangée?")
         if not confirm:
             return
         tree.delete(selected[0])
@@ -147,25 +166,66 @@ class MasterSheet:
         column_index = int(column.replace("#", "")) - 1
         if not row_id:
             return
+
+        # Cell geometry & current value
         x, y, width, height = tree.bbox(row_id, column)
-        value = tree.item(row_id)["values"][column_index]
-        self.edit_box = ttk.Entry(tree)
-        self.edit_box.place(x=x, y=y, width=width, height=height)
-        self.edit_box.insert(0, value)
-        self.edit_box.focus()
+        values = list(tree.item(row_id)["values"])
+        original_value = values[column_index] if column_index < len(values) else ""
+
+        # Create editor and keep a local handle + closed flag
+        editor = ttk.Entry(tree)
+        editor.place(x=x, y=y, width=width, height=height)
+        editor.insert(0, str(original_value))
+        editor.focus()
+        self.edit_box = editor
+        closed = False
+
+        def finish_edit(save: bool, new_value=None):
+            nonlocal values, closed
+            if closed:
+                return
+            closed = True
+
+            # Save new value if requested
+            if save and (new_value is not None) and column_index < len(values):
+                if values[column_index] != new_value:
+                    values[column_index] = new_value
+                    tree.item(row_id, values=values)
+                    self.set_unsaved_changes(True)
+
+            try:
+                editor.destroy()
+            except Exception:
+                pass
+            if self.edit_box is editor:
+                self.edit_box = None
+
+        def cancel_edit(event=None):
+            # ESC-like behavior: revert silently
+            finish_edit(save=False)
 
         def save_edit(event=None):
-            new_value = self.edit_box.get()
-            values = list(tree.item(row_id, "values"))
-            if column_index < len(values) and values[column_index] != new_value:
-                values[column_index] = new_value
-                tree.item(row_id, values=values)
-                self.set_unsaved_changes(True)
-            self.edit_box.destroy()
-            self.edit_box = None
+            # Guard if already closed
+            if not editor.winfo_exists() or self.edit_box is not editor:
+                return
 
-        self.edit_box.bind("<Return>", save_edit)
-        self.edit_box.bind("<FocusOut>", save_edit)
+            new_text = editor.get().strip()
+
+            # If this is an int column, invalid input -> behave exactly like ESC (revert silently)
+            if self._is_int_column(column_index):
+                if not self._is_int(new_text):
+                    cancel_edit()
+                    return
+                new_value = int(new_text)
+            else:
+                new_value = new_text
+
+            finish_edit(save=True, new_value=new_value)
+
+        # Bindings
+        editor.bind("<Return>", save_edit)    # commit
+        editor.bind("<FocusOut>", save_edit)  # commit on blur
+        editor.bind("<Escape>", cancel_edit)  # revert silently
 
     def show_context_menu(self, event, tree):
         selected = tree.identify_row(event.y)
@@ -216,6 +276,7 @@ class MasterSheet:
             with open(filename, "r") as f:
                 data = json.load(f)
                 for i, row in enumerate(data):
+                    # Insert exactly as in file (no coercion)
                     tag = "evenrow" if i % 2 == 0 else "oddrow"
                     tree.insert("", "end", values=row, tags=(tag,))
             if key:
