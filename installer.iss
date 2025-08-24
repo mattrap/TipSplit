@@ -2,8 +2,10 @@
 
 #define MyAppName "TipSplit"
 #define MyAppExeName "TipSplit.exe"
-; Read version from /DMyAppVersion=... (fallback when running locally)
-#define MyAppVersion GetDefine("MyAppVersion", "0.0.0")
+; If CI passes /DMyAppVersion=..., it's defined; otherwise default locally:
+#ifndef MyAppVersion
+  #define MyAppVersion "0.0.0"
+#endif
 #define MyAppPublisher "Mathias Tessier"
 
 [Setup]
