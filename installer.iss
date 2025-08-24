@@ -2,7 +2,8 @@
 
 #define MyAppName "TipSplit"
 #define MyAppExeName "TipSplit.exe"
-#define MyAppVersion GetStringParam("MyAppVersion", "0.0.0")
+; Read version from /DMyAppVersion=... (fallback when running locally)
+#define MyAppVersion GetDefine("MyAppVersion", "0.0.0")
 #define MyAppPublisher "Mathias Tessier"
 
 [Setup]
@@ -22,7 +23,7 @@ ArchitecturesInstallIn64BitMode=x64
 PrivilegesRequired=admin
 PrivilegesRequiredOverridesAllowed=dialog
 UninstallDisplayIcon={app}\{#MyAppExeName}
-; Point to assets/icons/app_icon.ico
+; Your icon lives here:
 SetupIconFile=assets\icons\app_icon.ico
 
 [Languages]
@@ -36,17 +37,16 @@ Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription
 ; PyInstaller build output
 Source: "dist\TipSplit\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
 
-; Ship read-only defaults
+; Ship read-only defaults alongside the app
 Source: "defaults\service_employees.json"; DestDir: "{app}\defaults"; Flags: ignoreversion createallsubdirs
 Source: "defaults\bussboy_employees.json"; DestDir: "{app}\defaults"; Flags: ignoreversion createallsubdirs
 
-; Seed user backend on first install only
-Source: "defaults\service_employees.json"; \
-    DestDir: "{userappdata}\TipSplit\backend"; Flags: onlyifdoesntexist ignoreversion createallsubdirs
-Source: "defaults\bussboy_employees.json"; \
-    DestDir: "{userappdata}\TipSplit\backend"; Flags: onlyifdoesntexist ignoreversion createallsubdirs
+; Seed the user-writable backend (first install only)
+Source: "defaults\service_employees.json"; DestDir: "{userappdata}\TipSplit\backend"; Flags: onlyifdoesntexist ignoreversion createallsubdirs
+Source: "defaults\bussboy_employees.json"; DestDir: "{userappdata}\TipSplit\backend"; Flags: onlyifdoesntexist ignoreversion createallsubdirs
 
 [InstallDelete]
+; Clean up legacy misplaced files if they exist
 Type: files; Name: "{app}\service_employees.json"
 Type: files; Name: "{app}\bussboy_employees.json"
 
