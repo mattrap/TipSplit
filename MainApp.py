@@ -10,7 +10,7 @@ from Distribution import DistributionTab
 from tkinter.simpledialog import askstring
 from tkinter import messagebox
 from Pay import PayTab
-from AppConfig import ensure_pdf_dir_selected
+from AppConfig import ensure_pdf_dir_selected, ensure_default_employee_files
 from updater import maybe_auto_check
 from version import APP_NAME, APP_VERSION
 
@@ -116,6 +116,9 @@ def show_splash(root, image_path: str, duration_ms: int = 2500):
 
 class TipSplitApp:
     def __init__(self, root):
+        # --- Seed backend employee JSONs on first run (never overwrites valid files) ---
+        ensure_default_employee_files()
+
         self.root = root
         self.root.title(f"{APP_NAME} v{APP_VERSION}")
         self.root.geometry("800x850")
@@ -123,6 +126,7 @@ class TipSplitApp:
         self._icon_refs = {}  # keep a reference so Tk doesn't GC the image
         set_app_icon(self.root, self._icon_refs)
 
+        # Ensure export folder is set
         ensure_pdf_dir_selected(self.root)
 
         self.shared_data = {}
@@ -133,9 +137,12 @@ class TipSplitApp:
         self.create_master_tab()
         self.create_timesheet_tab()
         self.create_distribution_tab()
+        # Pay tab is shown via menu action; create on demand.
+        # self.create_pay_tab()
 
         create_menu_bar(self.root, self)
 
+        # Gentle delayed update check
         self.root.after(2000, lambda: maybe_auto_check(self.root))
 
     def create_master_tab(self):
@@ -204,8 +211,10 @@ class TipSplitApp:
             self.notebook.add(self.pay_frame, text="Pay")
         self.notebook.select(self.pay_frame)
 
+    # ----- Cross-tab refresh hooks -----
     def reload_distribution_tab(self):
         if hasattr(self, "distribution_tab"):
+            # Keep the method name used by your DistributionTab
             self.distribution_tab.load_day_sheet_data()
 
     def reload_timesheet_data(self):

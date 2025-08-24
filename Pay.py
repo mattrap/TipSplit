@@ -7,6 +7,16 @@
 #   * For Busboys         -> columns: D
 #   * Badge shows which rule determined "Déclaré" (8% of A vs F for Service; D for Busboy)
 #   * Far-right header buttons: "Exporter tous (PDF)" and "Créer livret (PDF)"
+#
+# Storage model (JSONs are internal only):
+#   JSON_ROOT = AppConfig.get_backend_dir()
+#   - Daily distributions:  {JSON_ROOT}/daily/{pay_period}/*.json
+#   - Pay summaries:        {JSON_ROOT}/pay/{pay_period}/combined.Json   (preferred)
+#   Back-compat fallback (legacy):
+#   - {app}/exports/pay/{pay_period}.Json
+#
+# PDFs are exported by Export.py to the user-chosen PDF folder (outside app),
+# never into the JSON backend.
 
 import os
 import json
@@ -15,25 +25,32 @@ import ttkbootstrap as ttk
 from tkinter import StringVar, END, Listbox, Text, messagebox
 from ttkbootstrap.constants import *
 
+from AppConfig import get_backend_dir  # JSON_ROOT
+
 class PayTab:
     def __init__(self, master):
         self.master = master
         self.frame = ttk.Frame(master)
 
-        # Backend folder for COMBINED pay files only (reader for this tab).
-        # PDFs are NOT written here anymore; Export.py writes to the user-chosen folder.
-        self.backend_root = "exports"            # legacy backend root
-        self.combined_pay_dir = os.path.join(self.backend_root, "pay")
-        os.makedirs(self.combined_pay_dir, exist_ok=True)
+        # JSON backend root (internal, user shouldn't need to browse here)
+        self.json_root = get_backend_dir()
+        self.pay_root_new = os.path.join(self.json_root, "pay")
+
+        # Legacy fallback (read-only)
+        self.legacy_backend_root = "exports"
+        self.legacy_pay_dir = os.path.join(self.legacy_backend_root, "pay")
 
         # UI state
-        self.selected_payfile_var = StringVar()
-        self.current_payfile_path = None
+        self.selected_period_var = StringVar()   # shows the period label (e.g., "2025-06-08 au 2025-06-21")
         self.current_period_label = None
+        self.current_payfile_path = None
 
         # Data built from the selected combined file
         self.employees_index = {}
         self.employee_keys_sorted = []
+
+        # Discovered mapping: period_label -> absolute path to combined file
+        self._period_to_path = {}
 
         self._build_ui()
         self.refresh_pay_files()
@@ -50,10 +67,10 @@ class PayTab:
         left_box = ttk.Frame(header)
         left_box.pack(side=LEFT, fill=X, expand=True)
 
-        ttk.Label(left_box, text="Fichier combiné (exports/pay):").pack(side=LEFT)
-        self.pay_file_menu = ttk.Combobox(left_box, textvariable=self.selected_payfile_var, state="readonly", width=44)
+        ttk.Label(left_box, text="Période (JSON interne):").pack(side=LEFT)
+        self.pay_file_menu = ttk.Combobox(left_box, textvariable=self.selected_period_var, state="readonly", width=44)
         self.pay_file_menu.pack(side=LEFT, padx=6)
-        self.pay_file_menu.bind("<<ComboboxSelected>>", self.on_payfile_select)
+        self.pay_file_menu.bind("<<ComboboxSelected>>", self.on_period_select)
 
         ttk.Button(left_box, text="Rafraîchir", command=self.refresh_pay_files).pack(side=LEFT, padx=6)
 
@@ -142,45 +159,69 @@ class PayTab:
         self.shift_tree.pack(fill=BOTH, expand=True, padx=6, pady=6)
 
     # -----------------------
-    # Load combined files
+    # Load combined files (new layout + legacy fallback)
     # -----------------------
     def refresh_pay_files(self):
-        pay_dir = self.combined_pay_dir
-        files = []
+        self._period_to_path = {}
+
+        # New preferred layout: {JSON_ROOT}/pay/{period}/combined.Json
         try:
-            for name in os.listdir(pay_dir):
-                if name.endswith(".Json") and os.path.isfile(os.path.join(pay_dir, name)):
-                    files.append(name)
-        except FileNotFoundError:
+            if os.path.isdir(self.pay_root_new):
+                for period in os.listdir(self.pay_root_new):
+                    pdir = os.path.join(self.pay_root_new, period)
+                    if not os.path.isdir(pdir):
+                        continue
+                    # Prefer 'combined.Json' if present; else any *.Json inside
+                    preferred = os.path.join(pdir, "combined.Json")
+                    if os.path.isfile(preferred):
+                        self._period_to_path[period] = preferred
+                    else:
+                        candidates = [f for f in os.listdir(pdir) if f.endswith(".Json")]
+                        if candidates:
+                            self._period_to_path[period] = os.path.join(pdir, sorted(candidates)[0])
+        except Exception:
             pass
 
-        files.sort()
-        current = (self.selected_payfile_var.get() or "").strip()
-        self.pay_file_menu["values"] = files
+        # Legacy fallback: exports/pay/{period}.Json (only if not found in new map)
+        try:
+            if os.path.isdir(self.legacy_pay_dir):
+                for name in os.listdir(self.legacy_pay_dir):
+                    if name.endswith(".Json"):
+                        period = os.path.splitext(name)[0]
+                        self._period_to_path.setdefault(period, os.path.join(self.legacy_pay_dir, name))
+        except Exception:
+            pass
 
-        if current in files:
-            self.selected_payfile_var.set(current)
-        elif files:
-            self.selected_payfile_var.set(files[0])
+        periods = sorted(self._period_to_path.keys())
+        current = (self.selected_period_var.get() or "").strip()
+
+        self.pay_file_menu["values"] = periods
+        if current in periods:
+            self.selected_period_var.set(current)
+        elif periods:
+            self.selected_period_var.set(periods[0])
         else:
-            self.selected_payfile_var.set("")
+            self.selected_period_var.set("")
 
-        self.on_payfile_select()
+        self.on_period_select()
 
-    def on_payfile_select(self, event=None):
+    def on_period_select(self, event=None):
         self._clear_employees()
         self._clear_detail()
 
-        label = (self.selected_payfile_var.get() or "").strip()
+        label = (self.selected_period_var.get() or "").strip()
         if not label:
+            self.current_payfile_path = None
+            self.current_period_label = None
             return
 
-        path = os.path.join(self.combined_pay_dir, label)
-        if not os.path.isfile(path):
+        path = self._period_to_path.get(label)
+        if not path or not os.path.isfile(path):
+            messagebox.showerror("Erreur", f"Fichier combiné introuvable pour la période:\n{label}")
             return
 
         self.current_payfile_path = path
-        self.current_period_label = os.path.splitext(os.path.basename(path))[0]
+        self.current_period_label = label
 
         try:
             with open(path, "r", encoding="utf-8") as f:
@@ -206,6 +247,8 @@ class PayTab:
             "shifts":[{display_name,date,shift,hours,cash,sur_paye,frais_admin,A,B,D,E,F}],
             "totals": {"hours","cash","sur_paye","frais_admin","A_sum","F_sum","D_sum"}
         }
+        Accepts the structure created by JsonViewerTab or any tool that
+        writes a top-level {"distributions":[{"filename":..., "content":{...}}]} array.
         """
         self.employees_index.clear()
         self.employee_keys_sorted.clear()
@@ -218,13 +261,14 @@ class PayTab:
             if not isinstance(content, dict):
                 continue
 
+            # Prefer embedded meta; fallback to filename parsing
             meta = content.get("meta", {})
             date = safe_str(meta.get("date"))
             shift = safe_str(meta.get("shift"))
+            fname_no_ext = os.path.splitext(item.get("filename", ""))[0]
 
             if not date or not shift:
-                fname = item.get("filename", "")
-                parsed_date, parsed_shift = _parse_date_shift_from_filename(fname)
+                parsed_date, parsed_shift = _parse_date_shift_from_filename(fname_no_ext)
                 date = date or parsed_date
                 shift = shift or parsed_shift
 
@@ -267,9 +311,6 @@ class PayTab:
                 B_val = emp.get("B", "")
                 E_val = emp.get("E", "")
 
-                # Build filename-based label like "09-08-2025-SOIR" (no extension)
-                fname_no_ext = os.path.splitext(item.get("filename", ""))[0]
-
                 self.employees_index[key]["shifts"].append({
                     "display_name": fname_no_ext,  # For the Date column
                     "date": date, "shift": shift,
@@ -287,9 +328,11 @@ class PayTab:
                 t["F_sum"] += F_val
                 t["D_sum"] += D_val
 
+        # Sort shifts within each employee
         for key in self.employees_index:
             self.employees_index[key]["shifts"].sort(key=lambda s: (safe_str(s["date"]), safe_str(s["shift"])))
 
+        # Sort employees by role then name
         self.employee_keys_sorted = sorted(
             self.employees_index.keys(),
             key=lambda k: (safe_str(self.employees_index[k]["role"]).lower(),
@@ -455,9 +498,13 @@ def _employee_display(emp_id, name, role):
 
 def _parse_date_shift_from_filename(filename: str):
     try:
-        m = re.search(r"(\d{4}-\d{2}-\d{2})_([A-Za-zÀ-ÖØ-öø-ÿ]+)", filename)
-        if m:
-            return m.group(1), m.group(2)
+        # Accept "2025-06-08_Soir" or "09-08-2025-SOIR" styles; prefer ISO if present
+        m_iso = re.search(r"(\d{4}-\d{2}-\d{2})[_\-]([A-Za-zÀ-ÖØ-öø-ÿ]+)", filename)
+        if m_iso:
+            return m_iso.group(1), m_iso.group(2)
+        m_alt = re.search(r"(\d{2}-\d{2}-\d{4})[_\-]([A-Za-zÀ-ÖØ-öø-ÿ]+)", filename)
+        if m_alt:
+            return m_alt.group(1), m_alt.group(2)
     except Exception:
         pass
     return "", ""

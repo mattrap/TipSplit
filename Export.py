@@ -73,14 +73,16 @@ def _pdf_period_dir(category: str, pay_period_tuple: tuple) -> str:
     _ensure_dir(target)
     return target
 
-def _json_period_dir(pay_period_tuple: tuple) -> str:
+def _json_daily_period_dir(pay_period_tuple: tuple) -> str:
     """
-    JSON lives in the internal backend folder, namespaced by period.
-    Users shouldn't need to access it directly.
+    NEW STRUCTURE:
+      Daily distribution JSONs:
+        {JSON_ROOT}/daily/{pay_period}/...
+    Where JSON_ROOT = get_backend_dir()
     """
     start, end = pay_period_tuple
     period_folder = f"{start.replace('/', '-')}_au_{end.replace('/', '-')}"
-    target = os.path.join(get_backend_dir(), period_folder)
+    target = os.path.join(get_backend_dir(), "daily", period_folder)
     _ensure_dir(target)
     return target
 
@@ -332,9 +334,10 @@ def json_export(date, shift, pay_period, fields_sanitized, decl_fields_raw, entr
     """
     Create the merged JSON for the distribution & declaration.
     Returns (final_json_path, final_json_basename)
-    JSON is saved to the internal backend folder, namespaced by pay period.
+    JSON is saved to the internal backend folder under the NEW structure:
+      {JSON_ROOT}/daily/{pay_period}/{date}-{shift}_distribution.json
     """
-    json_dir = _json_period_dir(pay_period)
+    json_dir = _json_daily_period_dir(pay_period)
     base_json_path = os.path.join(json_dir, f"{date}-{shift}_distribution.json")
     final_json_path = get_unique_filename(base_json_path)
 
@@ -794,7 +797,7 @@ def export_distribution_from_tab(distribution_tab):
         start_str, end_str = pay_period_data["range"].split(" - ")
         pay_period = (start_str, end_str)
 
-        # ---- Export JSON first to get its final filename (into backend) ----
+        # ---- Export JSON first to get its final filename (into backend DAILY) ----
         json_path, json_filename = json_export(
             date, shift, pay_period, sanitized_inputs, raw_decl_inputs, entries_dist, entries_decl
         )
@@ -818,7 +821,7 @@ def export_distribution_from_tab(distribution_tab):
         print(traceback_str)
 
 '''
-PDF DESTINATIONS:
+PDF DESTINATIONS (user-visible):
 - Daily distribution PDFs:
     {PDF_ROOT}/Résumé de shift/{pay_period}/{date}-{shift}_distribution.pdf
 
@@ -828,6 +831,10 @@ PDF DESTINATIONS:
 - Booklet via make_booklet():
     {PDF_ROOT}/Paye/{pay_period}/{booklet_name}.pdf
 
-JSON DESTINATION (unchanged conceptually, but now always internal):
-    {BACKEND_ROOT}/{pay_period}/{filename}.json
+JSON DESTINATIONS (internal backend only):
+- Daily distributions:
+    {JSON_ROOT}/daily/{pay_period}/{date}-{shift}_distribution.json
+
+- Combined/employee summary JSONs (created by JsonViewerTab “Créer fichier combiné”):
+    {JSON_ROOT}/pay/{pay_period}/{pay_period}.Json
 '''

@@ -8,7 +8,8 @@ import sys
 import platform
 import tempfile
 import shutil
-from typing import Dict, Any
+import time
+from typing import Dict, Any, Tuple
 
 try:
     # Import lazily-safe: these may be unavailable in headless contexts
@@ -55,6 +56,20 @@ def _program_base() -> str:
     return os.path.dirname(os.path.abspath(sys.argv[0] if sys.argv and sys.argv[0] else __file__))
 
 # ----------------------------
+# Resource helpers (dev + PyInstaller)
+# ----------------------------
+def _resource_base() -> str:
+    """
+    Base folder for read-only app resources.
+    - In PyInstaller: sys._MEIPASS
+    - In dev: project root (near your script)
+    """
+    return getattr(sys, "_MEIPASS", _program_base())
+
+def _resource_path(relative_path: str) -> str:
+    return os.path.join(_resource_base(), relative_path)
+
+# ----------------------------
 # Paths & filesystem helpers
 # ----------------------------
 def _user_data_base() -> str:
@@ -94,6 +109,7 @@ def _atomic_write_json(path: str, data: Dict[str, Any]):
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
+            f.write("\n")
         os.replace(tmp, path)
     except Exception:
         try:
@@ -101,6 +117,25 @@ def _atomic_write_json(path: str, data: Dict[str, Any]):
         except Exception:
             pass
         raise
+
+def _load_json_or_none(path: str):
+    """
+    Try to load JSON file and return the parsed data.
+    Returns None if file is missing or corrupt. If corrupt, the bad file is backed up.
+    """
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        # backup corrupt file and treat as missing
+        ts = time.strftime("%Y%m%d-%H%M%S")
+        try:
+            os.replace(path, f"{path}.bak-{ts}")
+        except Exception:
+            pass
+        return None
 
 # ----------------------------
 # Migration
@@ -169,7 +204,77 @@ def save_config(cfg: Dict[str, Any]):
     _atomic_write_json(path, cfg)
 
 # ----------------------------
-# Public API (used by the app)
+# Backend employee files (public API)
+# ----------------------------
+def get_backend_dir() -> str:
+    return _expand_norm(load_config().get("exports_backend_dir", ""))
+
+def set_backend_dir(new_dir: str):
+    """
+    Allow changing the internal backend folder (where raw JSONs live).
+    """
+    new_dir = _expand_norm(new_dir)
+    cfg = load_config()
+    cfg["exports_backend_dir"] = new_dir
+    if new_dir:
+        _safe_mkdir(new_dir)
+    save_config(cfg)
+
+def get_employee_files() -> Tuple[str, str]:
+    """
+    Returns the current (read/write) employee JSON paths in the backend.
+    Always call this rather than hard-coding filenames so it respects set_backend_dir().
+    """
+    backend = get_backend_dir()
+    service_path = os.path.join(backend, "service_employees.json")
+    bussboy_path = os.path.join(backend, "bussboy_employees.json")
+    return service_path, bussboy_path
+
+def ensure_default_employee_files(defaults_subdir: str = "defaults") -> None:
+    """
+    Seed (or self-heal) backend employee files from read-only bundled defaults.
+
+    Behavior:
+      - If backend file is missing or corrupt -> copy from defaults.
+      - If backend file exists and is valid JSON -> leave it alone (never overwrite).
+      - Works in dev and PyInstaller via _resource_path().
+
+    Ship these with your app:
+      defaults/service_employees.json
+      defaults/bussboy_employees.json
+    """
+    backend_dir = get_backend_dir()
+    _safe_mkdir(backend_dir)
+
+    svc_path, bus_path = get_employee_files()
+
+    # Locations of bundled defaults (read-only in the app bundle)
+    default_service_src = _resource_path(os.path.join(defaults_subdir, "service_employees.json"))
+    default_bussboy_src = _resource_path(os.path.join(defaults_subdir, "bussboy_employees.json"))
+
+    # Service
+    if _load_json_or_none(svc_path) is None:
+        # If default is missing (developer mistake), fall back to a minimal template
+        if os.path.exists(default_service_src):
+            shutil.copyfile(default_service_src, svc_path)
+        else:
+            _atomic_write_json(svc_path, [
+                [1, "SERVEUR À REMPLIR 1", 7, ""],
+                [2, "SERVEUR À REMPLIR 2", 7, ""]
+            ])
+
+    # Bussboy
+    if _load_json_or_none(bus_path) is None:
+        if os.path.exists(default_bussboy_src):
+            shutil.copyfile(default_bussboy_src, bus_path)
+        else:
+            _atomic_write_json(bus_path, [
+                [101, "BUSSBOY À REMPLIR 1", 3, ""],
+                [102, "BUSSBOY À REMPLIR 2", 3, ""]
+            ])
+
+# ----------------------------
+# Public API (used by the app) — PDF export dir
 # ----------------------------
 def ensure_pdf_dir_selected(root=None) -> str:
     """
@@ -225,20 +330,6 @@ def set_pdf_dir(new_dir: str):
         _safe_mkdir(new_dir)
     save_config(cfg)
 
-def get_backend_dir() -> str:
-    return _expand_norm(load_config().get("exports_backend_dir", ""))
-
-def set_backend_dir(new_dir: str):
-    """
-    Allow changing the internal backend folder (where raw JSONs live).
-    """
-    new_dir = _expand_norm(new_dir)
-    cfg = load_config()
-    cfg["exports_backend_dir"] = new_dir
-    if new_dir:
-        _safe_mkdir(new_dir)
-    save_config(cfg)
-
 # ----------------------------
 # Handy extras for a shipped app
 # ----------------------------
@@ -254,7 +345,7 @@ def open_config_folder():
         elif platform.system().lower() == "darwin":
             os.system(f'open "{path}"')
         else:
-            os.system(f'xdg-open "{path}" >/dev/null 2>&1 &')
+            os.system(f'xdg-open "{path}" >/dev/null 2&>1 &')
     except Exception:
         pass
 
@@ -273,4 +364,3 @@ def set_auto_check_updates(enabled: bool):
     cfg = load_config()
     cfg["auto_check_updates"] = bool(enabled)
     save_config(cfg)
-

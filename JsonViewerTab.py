@@ -1,13 +1,19 @@
+# JsonViewerTab.py — backend-only JSON browser/combiner
+# Features added:
+# 1) Sort pay periods and files newest-first
+# 2) Defensive JSON loading (clean error handling)
+# Also: keep *all* JSONs inside the app’s backend (no JSONs in user-visible folders)
+
 import os
 import json
 import glob
 import datetime as _dt
 import ttkbootstrap as ttk
-from tkinter import filedialog, messagebox
+from tkinter import messagebox
 from tkinter import StringVar, END, Listbox, Text
 from ttkbootstrap.constants import *
 
-# NEW: use the internal backend location for raw JSON distributions
+# JSONs (per-day and combined) live in the internal backend
 from AppConfig import get_backend_dir
 
 
@@ -23,12 +29,12 @@ class JsonViewerTab:
         self.view_mode = StringVar(value="distribution")
 
         # --- Folders ---
-        # Raw per-day JSONs now live in the internal backend dir, with one subfolder per pay period.
+        # Per-day JSONs: {backend}/{pay_period}/*.json
         self.backend_json_root = get_backend_dir()
 
-        # Combined pay files (the big .Json used by the Pay tab) remain in legacy backend:
-        # exports/pay/{pay_period}.Json  (Pay.py reads from here)
-        self.combined_pay_root = os.path.join("exports", "pay")
+        # Combined pay files now ALSO live under backend (no JSONs outside app folder):
+        # {backend}/combined_pay/{pay_period}.Json
+        self.combined_pay_root = os.path.join(self.backend_json_root, "combined_pay")
         os.makedirs(self.combined_pay_root, exist_ok=True)
 
         # Base directory where pay-period folders live (each pay period is a subfolder here)
@@ -175,7 +181,8 @@ class JsonViewerTab:
         except FileNotFoundError:
             pass
 
-        periods = sorted(periods)
+        # Feature 1: newest-first sort (string sort works for ISO-like labels)
+        periods = sorted(periods, reverse=True)
         self.period_menu["values"] = periods
 
         # Preserve selection if possible, otherwise select first available
@@ -205,8 +212,9 @@ class JsonViewerTab:
         if not os.path.isdir(folder_path):
             return
 
-        json_files = [f for f in os.listdir(folder_path) if f.endswith(".json")]
-        for f in sorted(json_files):
+        # Feature 1: newest-first file list
+        json_files = sorted((f for f in os.listdir(folder_path) if f.endswith(".json")), reverse=True)
+        for f in json_files:
             self.file_listbox.insert(END, f)
 
     # -----------------------
@@ -224,10 +232,15 @@ class JsonViewerTab:
 
         self.current_file_path = os.path.join(self.current_period_path, selected_file)
 
+        # Feature 2: defensive JSON load
         try:
             with open(self.current_file_path, "r", encoding="utf-8") as f:
                 content = json.load(f)
+        except Exception as e:
+            messagebox.showerror("Erreur", f"Impossible de charger le fichier JSON:\n{type(e).__name__}: {e}")
+            return
 
+        try:
             self.clear_treeviews()
 
             # Distribution inputs
@@ -251,7 +264,7 @@ class JsonViewerTab:
                     continue
 
                 def _fmt(x):
-                    return "" if x in ("", None) else x
+                    return "" if x in ("", None) else str(x)
 
                 self.tree.insert("", END, values=(
                     emp.get("employee_id", ""),
@@ -275,7 +288,7 @@ class JsonViewerTab:
                 self.show_distribution_view()
 
         except Exception as e:
-            messagebox.showerror("Erreur", f"Impossible de charger le fichier JSON:\n{str(e)}")
+            messagebox.showerror("Erreur", f"Impossible d’afficher le JSON chargé:\n{type(e).__name__}: {e}")
 
     def clear_treeviews(self):
         self.inputs_text.delete("1.0", END)
@@ -339,9 +352,9 @@ class JsonViewerTab:
         Handler for the 'Créer fichier combiné' button.
 
         It combines all *.json distributions from the selected backend period folder and writes:
-            exports/pay/{pay_period}.Json
+            {backend}/combined_pay/{pay_period}.Json
 
-        (The Pay tab reads combined files from exports/pay.)
+        (No JSONs are written outside the app folder.)
         """
         period_label = self._resolve_selected_pay_period_label()
         if not period_label:
@@ -365,7 +378,7 @@ class JsonViewerTab:
     def _combine_all_jsons_in_period(self, pay_period_path: str, pay_period_label: str) -> str:
         """
         Combine every *.json file in the selected backend pay-period folder into:
-            exports/pay/{pay_period_label}.Json
+            {backend}/combined_pay/{pay_period_label}.Json
 
         The result contains:
             {
@@ -392,12 +405,8 @@ class JsonViewerTab:
             if os.path.isfile(p)
         )
 
-        # Exclude known aggregate/final files if they somehow exist inside the folder
-        excluded_names = {
-            os.path.basename(out_path),
-            f"{pay_period_label}_pay_data.json",
-        }
-
+        # Exclude any known aggregate/final files if they exist inside the folder
+        excluded_names = {os.path.basename(out_path), f"{pay_period_label}_pay_data.json"}
         jsons_to_merge = [p for p in all_jsons if os.path.basename(p) not in excluded_names]
 
         combined = {

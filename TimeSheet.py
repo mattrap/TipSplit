@@ -6,12 +6,21 @@ from PunchClock import PunchClockPopup
 from datetime import datetime
 import json
 import os
+from AppConfig import get_employee_files, ensure_default_employee_files
 
-SERVICE_FILE = "service_employees.json"
-BUSSBOY_FILE = "bussboy_employees.json"
 
 class TimeSheet:
     def __init__(self, root, shared_data=None, reload_distribution_data=None):
+        # Ensure backend employee files exist (safe no-op if already present)
+        try:
+            ensure_default_employee_files()
+        except Exception:
+            # Don't block UI if something went wrong here; Distribution tab will still show errors during export
+            pass
+
+        # Resolve backend file paths (AppData or portable "data/")
+        self.service_file, self.bussboy_file = get_employee_files()
+
         self.shared_data = shared_data
         self.reload_distribution_data = reload_distribution_data
         self.root = root
@@ -131,10 +140,15 @@ class TimeSheet:
         )
         confirm_btn.pack(side=RIGHT)
 
-    def load_data_file(self, filename):
-        if os.path.exists(filename):
-            with open(filename, "r") as f:
-                return json.load(f)
+    # ---------- Data loading ----------
+    def _load_data_file(self, path):
+        try:
+            if os.path.exists(path):
+                with open(path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+        except Exception:
+            # Corrupt or unreadable; treat as empty so UI still loads
+            pass
         return []
 
     def reload(self):
@@ -147,24 +161,35 @@ class TimeSheet:
         self.original_points.clear()
         self.hovered_row = None
 
-        service_data = self.load_data_file(SERVICE_FILE)
+        # Use backend-aware files
+        service_data = self._load_data_file(self.service_file)
         if service_data:
             self.tree.insert("", "end", values=("", "--- Service ---", "", "", "", "", ""), tags=("section",))
             for row in service_data:
-                number, name, points = row[0], row[1], row[2]
+                number = row[0] if len(row) > 0 else ""
+                name   = row[1] if len(row) > 1 else ""
+                points = row[2] if len(row) > 2 else 0
                 row_id = self.tree.insert("", "end", values=(number, name, points, "🕒", "", "", ""), tags=("editable",))
                 self.punch_data[row_id] = {"in": "", "out": "", "total": 0.0}
-                self.original_points[row_id] = int(points) if str(points).isdigit() else 0
+                try:
+                    self.original_points[row_id] = int(points)
+                except Exception:
+                    self.original_points[row_id] = 0
             self.service_total_row = self.tree.insert("", "end", values=("", "Total Service", "", "", "", "", "0.00"), tags=("total",))
 
-        bussboy_data = self.load_data_file(BUSSBOY_FILE)
+        bussboy_data = self._load_data_file(self.bussboy_file)
         if bussboy_data:
             self.tree.insert("", "end", values=("", "--- Bussboy ---", "", "", "", "", ""), tags=("section",))
             for row in bussboy_data:
-                number, name, points = row[0], row[1], row[2]
+                number = row[0] if len(row) > 0 else ""
+                name   = row[1] if len(row) > 1 else ""
+                points = row[2] if len(row) > 2 else 0
                 row_id = self.tree.insert("", "end", values=(number, name, points, "🕒", "", "", ""), tags=("editable",))
                 self.punch_data[row_id] = {"in": "", "out": "", "total": 0.0}
-                self.original_points[row_id] = int(points) if str(points).isdigit() else 0
+                try:
+                    self.original_points[row_id] = int(points)
+                except Exception:
+                    self.original_points[row_id] = 0
             self.bussboy_total_row = self.tree.insert("", "end", values=("", "Total Bussboy", "", "", "", "", "0.00"), tags=("total",))
 
         self.update_totals()
