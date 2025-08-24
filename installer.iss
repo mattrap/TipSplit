@@ -36,16 +36,16 @@ Name: "french";  MessagesFile: "compiler:Languages\French.isl"
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional icons:"; Flags: unchecked
 
 [Files]
-; PyInstaller build output
+; PyInstaller build output (folder tree)
 Source: "dist\TipSplit\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
 
-; Ship read-only defaults alongside the app
-Source: "defaults\service_employees.json"; DestDir: "{app}\defaults"; Flags: ignoreversion createallsubdirs
-Source: "defaults\bussboy_employees.json"; DestDir: "{app}\defaults"; Flags: ignoreversion createallsubdirs
+; Ship read-only defaults alongside the app (single files → no createallsubdirs needed)
+Source: "defaults\service_employees.json"; DestDir: "{app}\defaults"; Flags: ignoreversion
+Source: "defaults\bussboy_employees.json";  DestDir: "{app}\defaults"; Flags: ignoreversion
 
-; Seed the user-writable backend (first install only)
-Source: "defaults\service_employees.json"; DestDir: "{userappdata}\TipSplit\backend"; Flags: onlyifdoesntexist ignoreversion createallsubdirs
-Source: "defaults\bussboy_employees.json"; DestDir: "{userappdata}\TipSplit\backend"; Flags: onlyifdoesntexist ignoreversion createallsubdirs
+; Seed the user-writable backend on first install only (single files)
+Source: "defaults\service_employees.json"; DestDir: "{userappdata}\TipSplit\backend"; Flags: onlyifdoesntexist ignoreversion
+Source: "defaults\bussboy_employees.json";  DestDir: "{userappdata}\TipSplit\backend"; Flags: onlyifdoesntexist ignoreversion
 
 [InstallDelete]
 ; Clean up legacy misplaced files if they exist
