@@ -3,7 +3,7 @@ name: Build Windows Installer
 on:
   push:
     tags:
-      - 'v*'            # build when you push/ create a tag like v1.0.4
+      - 'v*'            # build when you push/create a tag like v1.0.4
 
 permissions:
   contents: write       # allow attaching files to the Release
@@ -38,27 +38,27 @@ jobs:
           }
 
       # Prepare a clean bundle layout:
-      # - Move premade employee JSONs into templates/ (bundled in the EXE)
+      # - Make sure defaults/ exists with employee JSONs
       # - Ensure assets/ is present (icons, splash, etc.)
-      - name: Prepare bundle layout (templates, assets)
+      - name: Verify bundle layout (defaults, assets)
         shell: pwsh
         run: |
-          if (!(Test-Path -LiteralPath "templates")) { New-Item -ItemType Directory -Path "templates" | Out-Null }
-          Copy-Item -LiteralPath "service_employees.json" -Destination "templates\service_employees.json" -Force
-          Copy-Item -LiteralPath "bussboy_employees.json" -Destination "templates\bussboy_employees.json" -Force
-
+          if (!(Test-Path -LiteralPath "defaults/service_employees.json")) {
+            throw "Missing defaults/service_employees.json"
+          }
+          if (!(Test-Path -LiteralPath "defaults/bussboy_employees.json")) {
+            throw "Missing defaults/bussboy_employees.json"
+          }
           if (!(Test-Path -LiteralPath "assets")) {
-            Write-Host "No assets/ folder found — continuing."
+            Write-Host "⚠️ No assets/ folder found — continuing without assets."
           }
 
       - name: Build EXE (PyInstaller)
         shell: pwsh
         run: |
           # On Windows, --add-data uses "SRC;DEST"
-          # Bundle templates/ so first-run can copy them into the user's backend dir.
-          # Bundle assets/ (icons, images, splash).
           pyinstaller --noconsole --name TipSplit `
-            --add-data "templates;templates" `
+            --add-data "defaults;defaults" `
             --add-data "assets;assets" `
             MainApp.py
 
