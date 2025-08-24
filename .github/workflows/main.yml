@@ -37,12 +37,29 @@ jobs:
             throw "APP_VERSION not found in version.py"
           }
 
+      # Prepare a clean bundle layout:
+      # - Move premade employee JSONs into templates/ (bundled in the EXE)
+      # - Ensure assets/ is present (icons, splash, etc.)
+      - name: Prepare bundle layout (templates, assets)
+        shell: pwsh
+        run: |
+          if (!(Test-Path -LiteralPath "templates")) { New-Item -ItemType Directory -Path "templates" | Out-Null }
+          Copy-Item -LiteralPath "service_employees.json" -Destination "templates\service_employees.json" -Force
+          Copy-Item -LiteralPath "bussboy_employees.json" -Destination "templates\bussboy_employees.json" -Force
+
+          if (!(Test-Path -LiteralPath "assets")) {
+            Write-Host "No assets/ folder found — continuing."
+          }
+
       - name: Build EXE (PyInstaller)
         shell: pwsh
         run: |
+          # On Windows, --add-data uses "SRC;DEST"
+          # Bundle templates/ so first-run can copy them into the user's backend dir.
+          # Bundle assets/ (icons, images, splash).
           pyinstaller --noconsole --name TipSplit `
-            --add-data "service_employees.json;." `
-            --add-data "bussboy_employees.json;." `
+            --add-data "templates;templates" `
+            --add-data "assets;assets" `
             MainApp.py
 
       - name: Install Inno Setup
@@ -53,7 +70,8 @@ jobs:
         shell: pwsh
         run: |
           $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
-          & $iscc "/DMyAppVersion=${{ steps.v.outputs.ver }}" installer.iss
+          # /O sets output dir to dist/installer, so the next step can upload it
+          & $iscc "/DMyAppVersion=${{ steps.v.outputs.ver }}" "/Odist/installer" installer.iss
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
