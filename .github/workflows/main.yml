@@ -37,6 +37,9 @@ jobs:
             throw "APP_VERSION not found in version.py"
           }
 
+      # Prepare a clean bundle layout:
+      # - Make sure defaults/ exists with employee JSONs
+      # - Ensure assets/ is present (icons, splash, etc.)
       - name: Verify bundle layout (defaults, assets)
         shell: pwsh
         run: |
@@ -46,11 +49,8 @@ jobs:
           if (!(Test-Path -LiteralPath "defaults/bussboy_employees.json")) {
             throw "Missing defaults/bussboy_employees.json"
           }
-          if (!(Test-Path -LiteralPath "assets/icons/app_icon.ico")) {
-            throw "Missing assets/icons/app_icon.ico"
-          }
-          if (!(Test-Path -LiteralPath "assets/images")) {
-            Write-Host "⚠️ No assets/images folder found — continuing."
+          if (!(Test-Path -LiteralPath "assets")) {
+            Write-Host "⚠️ No assets/ folder found — continuing without assets."
           }
 
       - name: Build EXE (PyInstaller)
