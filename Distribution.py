@@ -677,13 +677,21 @@ class DistributionTab:
                 fset(item, "F", F)
 
     def load_day_sheet_data(self):
+        """Load timesheet data from shared_data with enhanced bundled app support"""
+        print("🔍 Distribution tab: load_day_sheet_data called")
+        
         transfer_data = self.shared_data.get("transfer")
+        print(f"🔍 Transfer data: {transfer_data}")
+        
         if not transfer_data:
             print("⚠️ No transfer data found.")
             return
 
         entries = transfer_data.get("entries", [])
         selected_date = transfer_data.get("date", "??-??-????")
+        print(f"🔍 Entries: {entries}")
+        print(f"🔍 Selected date: {selected_date}")
+        
         self.selected_date_str = selected_date
 
         organized_data = []
@@ -705,17 +713,31 @@ class DistributionTab:
             entry["is_section"] = False
             organized_data.append(entry)
 
-        self.tree.delete(*self.tree.get_children())
-        self.date_label.config(text=f"Feuille du: {self.selected_date_str}")
-        self.update_pay_period_display()
+        print(f"🔍 Organized data: {organized_data}")
 
+        # Clear the tree completely
+        self.tree.delete(*self.tree.get_children())
+        print("🔍 Tree cleared")
+        
+        # Update the date label
+        self.date_label.config(text=f"Feuille du: {self.selected_date_str}")
+        print(f"🔍 Date label updated: {self.selected_date_str}")
+        
+        # Update pay period display
+        self.update_pay_period_display()
+        print("🔍 Pay period display updated")
+
+        # Populate the tree with organized data
+        tree_items = []
         for entry in organized_data:
             if entry.get("is_section"):
-                self.tree.insert("", "end",
+                item = self.tree.insert("", "end",
                                  values=("", entry["name"], "", "", "", "", "", "", "", "", "", ""),
                                  tags=("section",))
+                tree_items.append(item)
+                print(f"🔍 Added section item: {entry['name']}")
             else:
-                self.tree.insert("", "end", values=(
+                item = self.tree.insert("", "end", values=(
                     entry.get("number", ""),
                     entry.get("name", ""),
                     entry.get("points", ""),
@@ -729,8 +751,29 @@ class DistributionTab:
                     "",  # E
                     "",  # F
                 ))
+                tree_items.append(item)
+                print(f"🔍 Added employee item: {entry['name']} - {entry['hours']} hours")
 
-        self.process()
+        print(f"🔍 Tree populated with {len(organized_data)} entries")
+        print(f"🔍 Tree items created: {len(tree_items)}")
+        
+        # Force UI refresh (especially important for bundled apps)
+        self._force_ui_refresh()
+        
+        # Verify tree content
+        if not self._verify_tree_content():
+            print("⚠️ WARNING: Tree content verification failed!")
+            # Try one more refresh
+            self.root.after(500, self._force_ui_refresh)
+        
+        # Process the data
+        try:
+            self.process()
+            print("🔍 Data processing completed successfully")
+        except Exception as e:
+            print(f"❌ Error during data processing: {e}")
+            import traceback
+            traceback.print_exc()
 
     def process(self):
         # Get user-entered inputs
@@ -766,93 +809,4 @@ class DistributionTab:
         # 4) Update declaration summary label (already in your code)
         decl = self.declaration_net_values()
         self.ventes_declarees_label.config(text=f"Ventes déclarées: {decl['ventes_declarees']:.2f} $")
-
-    def _validate_and_repair_data(self, entries):
-        """Validate and repair entry data to ensure compatibility"""
-        if not entries or not isinstance(entries, list):
-            return []
-        
-        repaired_entries = []
-        for i, entry in enumerate(entries):
-            if not isinstance(entry, dict):
-                print(f"⚠️ Skipping invalid entry at index {i}: {entry}")
-                continue
-            
-            # Ensure required fields exist with defaults
-            repaired_entry = {
-                "section": entry.get("section", "Service"),
-                "number": entry.get("number", ""),
-                "name": entry.get("name", f"Employee {i+1}"),
-                "points": entry.get("points", "0"),
-                "in": entry.get("in", ""),
-                "out": entry.get("out", ""),
-                "hours": entry.get("hours", "0.0")
-            }
-            
-            # Validate and repair numeric fields
-            try:
-                points = float(repaired_entry["points"])
-                repaired_entry["points"] = str(points)
-            except (ValueError, TypeError):
-                repaired_entry["points"] = "0"
-            
-            try:
-                hours = float(repaired_entry["hours"])
-                repaired_entry["hours"] = f"{hours:.2f}"
-            except (ValueError, TypeError):
-                repaired_entry["hours"] = "0.0"
-            
-            # Validate section
-            if repaired_entry["section"] not in ["Service", "Bussboy"]:
-                # Try to determine section from employee number
-                try:
-                    emp_num = int(repaired_entry["number"])
-                    repaired_entry["section"] = "Bussboy" if emp_num >= 100 else "Service"
-                except (ValueError, TypeError):
-                    repaired_entry["section"] = "Service"
-            
-            repaired_entries.append(repaired_entry)
-        
-        return repaired_entries
-
-    def _ensure_data_compatibility(self, transfer_data):
-        """Ensure data compatibility across different app versions and installations"""
-        try:
-            if not transfer_data or not isinstance(transfer_data, dict):
-                return False
-            
-            # Check for required fields
-            required_fields = ["entries", "date"]
-            for field in required_fields:
-                if field not in transfer_data:
-                    print(f"⚠️ Missing required field: {field}")
-                    return False
-            
-            # Validate entries
-            entries = transfer_data.get("entries", [])
-            if not entries:
-                print("⚠️ No entries found")
-                return False
-            
-            # Repair and validate entries
-            repaired_entries = self._validate_and_repair_data(entries)
-            if not repaired_entries:
-                print("⚠️ No valid entries after repair")
-                return False
-            
-            # Update the transfer data with repaired entries
-            transfer_data["entries"] = repaired_entries
-            
-            # Add compatibility metadata
-            transfer_data["_compatibility"] = {
-                "version": "1.0",
-                "repaired": len(repaired_entries) != len(entries),
-                "timestamp": datetime.now().isoformat()
-            }
-            
-            return True
-            
-        except Exception as e:
-            print(f"❌ Error ensuring data compatibility: {e}")
-            return False
 

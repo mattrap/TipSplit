@@ -184,7 +184,7 @@ class TipSplitApp:
                 print("⚠️ Repairing invalid entries structure")
                 self.shared_data["transfer"]["entries"] = []
             
-            # Validate date if it exists
+            # Validate date if they exist
             date = transfer.get("date", "")
             if date and not isinstance(date, str):
                 print("⚠️ Repairing invalid date structure")
