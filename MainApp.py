@@ -129,7 +129,9 @@ class TipSplitApp:
         # Ensure export folder is set
         ensure_pdf_dir_selected(self.root)
 
+        # Initialize shared data with validation
         self.shared_data = {}
+        self._initialize_shared_data()
 
         self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(fill=BOTH, expand=True)
@@ -144,6 +146,69 @@ class TipSplitApp:
 
         # Gentle delayed update check
         self.root.after(2000, lambda: maybe_auto_check(self.root))
+
+    def _initialize_shared_data(self):
+        """Initialize shared data structure with validation and error handling"""
+        try:
+            # Initialize transfer data structure
+            self.shared_data.setdefault("transfer", {})
+            
+            # Initialize other shared data structures
+            self.shared_data.setdefault("employee_data", {})
+            self.shared_data.setdefault("pay_periods", {})
+            
+            # Validate existing data if any
+            self._validate_shared_data()
+            
+        except Exception as e:
+            print(f"⚠️ Warning: Error initializing shared data: {e}")
+            # Ensure basic structure exists even if validation fails
+            self.shared_data = {
+                "transfer": {},
+                "employee_data": {},
+                "pay_periods": {}
+            }
+
+    def _validate_shared_data(self):
+        """Validate and repair shared data structure if needed"""
+        try:
+            # Validate transfer data
+            transfer = self.shared_data.get("transfer", {})
+            if not isinstance(transfer, dict):
+                print("⚠️ Repairing invalid transfer data structure")
+                self.shared_data["transfer"] = {}
+            
+            # Validate entries if they exist
+            entries = transfer.get("entries", [])
+            if entries and not isinstance(entries, list):
+                print("⚠️ Repairing invalid entries structure")
+                self.shared_data["transfer"]["entries"] = []
+            
+            # Validate date if it exists
+            date = transfer.get("date", "")
+            if date and not isinstance(date, str):
+                print("⚠️ Repairing invalid date structure")
+                self.shared_data["transfer"]["date"] = ""
+                
+        except Exception as e:
+            print(f"⚠️ Warning: Error validating shared data: {e}")
+
+    def _safe_shared_data_access(self, key, default=None):
+        """Safely access shared data with error handling"""
+        try:
+            return self.shared_data.get(key, default)
+        except Exception as e:
+            print(f"⚠️ Warning: Error accessing shared data key '{key}': {e}")
+            return default
+
+    def _safe_shared_data_set(self, key, value):
+        """Safely set shared data with error handling"""
+        try:
+            self.shared_data[key] = value
+            return True
+        except Exception as e:
+            print(f"⚠️ Warning: Error setting shared data key '{key}': {e}")
+            return False
 
     def create_master_tab(self):
         self.master_frame = ttk.Frame(self.notebook)

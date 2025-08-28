@@ -767,3 +767,92 @@ class DistributionTab:
         decl = self.declaration_net_values()
         self.ventes_declarees_label.config(text=f"Ventes déclarées: {decl['ventes_declarees']:.2f} $")
 
+    def _validate_and_repair_data(self, entries):
+        """Validate and repair entry data to ensure compatibility"""
+        if not entries or not isinstance(entries, list):
+            return []
+        
+        repaired_entries = []
+        for i, entry in enumerate(entries):
+            if not isinstance(entry, dict):
+                print(f"⚠️ Skipping invalid entry at index {i}: {entry}")
+                continue
+            
+            # Ensure required fields exist with defaults
+            repaired_entry = {
+                "section": entry.get("section", "Service"),
+                "number": entry.get("number", ""),
+                "name": entry.get("name", f"Employee {i+1}"),
+                "points": entry.get("points", "0"),
+                "in": entry.get("in", ""),
+                "out": entry.get("out", ""),
+                "hours": entry.get("hours", "0.0")
+            }
+            
+            # Validate and repair numeric fields
+            try:
+                points = float(repaired_entry["points"])
+                repaired_entry["points"] = str(points)
+            except (ValueError, TypeError):
+                repaired_entry["points"] = "0"
+            
+            try:
+                hours = float(repaired_entry["hours"])
+                repaired_entry["hours"] = f"{hours:.2f}"
+            except (ValueError, TypeError):
+                repaired_entry["hours"] = "0.0"
+            
+            # Validate section
+            if repaired_entry["section"] not in ["Service", "Bussboy"]:
+                # Try to determine section from employee number
+                try:
+                    emp_num = int(repaired_entry["number"])
+                    repaired_entry["section"] = "Bussboy" if emp_num >= 100 else "Service"
+                except (ValueError, TypeError):
+                    repaired_entry["section"] = "Service"
+            
+            repaired_entries.append(repaired_entry)
+        
+        return repaired_entries
+
+    def _ensure_data_compatibility(self, transfer_data):
+        """Ensure data compatibility across different app versions and installations"""
+        try:
+            if not transfer_data or not isinstance(transfer_data, dict):
+                return False
+            
+            # Check for required fields
+            required_fields = ["entries", "date"]
+            for field in required_fields:
+                if field not in transfer_data:
+                    print(f"⚠️ Missing required field: {field}")
+                    return False
+            
+            # Validate entries
+            entries = transfer_data.get("entries", [])
+            if not entries:
+                print("⚠️ No entries found")
+                return False
+            
+            # Repair and validate entries
+            repaired_entries = self._validate_and_repair_data(entries)
+            if not repaired_entries:
+                print("⚠️ No valid entries after repair")
+                return False
+            
+            # Update the transfer data with repaired entries
+            transfer_data["entries"] = repaired_entries
+            
+            # Add compatibility metadata
+            transfer_data["_compatibility"] = {
+                "version": "1.0",
+                "repaired": len(repaired_entries) != len(entries),
+                "timestamp": datetime.now().isoformat()
+            }
+            
+            return True
+            
+        except Exception as e:
+            print(f"❌ Error ensuring data compatibility: {e}")
+            return False
+

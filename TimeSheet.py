@@ -582,3 +582,123 @@ class TimeSheet:
         else:
             # cancel: no changes
             pass
+
+    def export_to_distribution(self):
+        """Export current timesheet data to distribution tab with enhanced error handling"""
+        try:
+            # Validate that we have data to export
+            if not self.punch_data:
+                self.status_label.config(
+                    text="⚠️ Aucune donnée d'horaires à exporter",
+                    foreground="#FF8C00")
+                self.fade_out_status_label()
+                return
+
+            # Get current date
+            date_str = self.date_picker.entry.get()
+            if not date_str or date_str == "??-??-????":
+                self.status_label.config(
+                    text="⚠️ Veuillez sélectionner une date valide",
+                    foreground="#FF8C00")
+                self.fade_out_status_label()
+                return
+
+            # Build export data with validation
+            export_data = []
+            current_section = None
+            
+            for item in self.tree.get_children():
+                tags = self.tree.item(item, "tags")
+                if "editable" not in tags:
+                    continue
+
+                values = self.tree.item(item, "values")
+                if len(values) < 3:
+                    continue
+
+                # Determine section from employee number
+                emp_number = values[0]
+                if isinstance(emp_number, (int, str)) and str(emp_number).isdigit():
+                    emp_num = int(emp_number)
+                    if emp_num >= 100:  # Bussboy range
+                        current_section = "Bussboy"
+                    else:  # Service range
+                        current_section = "Service"
+
+                punch = self.punch_data.get(item, {})
+                try:
+                    total = float(punch.get("total", 0))
+                except (ValueError, TypeError):
+                    total = 0
+
+                if total > 0:
+                    export_data.append({
+                        "section": current_section or "Service",
+                        "number": values[0],
+                        "name": values[1],
+                        "points": values[2],  # uses edited value if present
+                        "in": punch.get("in", ""),
+                        "out": punch.get("out", ""),
+                        "hours": f"{total:.2f}"
+                    })
+
+            # Validate export data
+            if not export_data:
+                self.status_label.config(
+                    text="⚠️ Aucune donnée valide à exporter",
+                    foreground="#FF8C00")
+                self.fade_out_status_label()
+                return
+
+            # Store data in shared_data with validation
+            try:
+                self.shared_data.setdefault("transfer", {})
+                self.shared_data["transfer"]["date"] = date_str
+                self.shared_data["transfer"]["entries"] = export_data
+                self.shared_data["transfer"]["timestamp"] = datetime.now().isoformat()
+                self.shared_data["transfer"]["source"] = "timesheet"
+                
+                # Verify data was stored correctly
+                if (self.shared_data.get("transfer", {}).get("entries") == export_data and 
+                    self.shared_data.get("transfer", {}).get("date") == date_str):
+                    
+                    self.status_label.config(
+                        text="✅ Les Heures ont été enregistrées et transférées à l'onglet Distribution",
+                        foreground="#228B22")
+                    self.fade_out_status_label()
+
+                    # Trigger distribution tab refresh with error handling
+                    if self.reload_distribution_data:
+                        try:
+                            self.reload_distribution_data()
+                        except Exception as e:
+                            print(f"⚠️ Erreur lors du rafraîchissement de l'onglet Distribution: {e}")
+                            self.status_label.config(
+                                text="⚠️ Données transférées mais erreur de rafraîchissement",
+                                foreground="#FF8C00")
+                            self.fade_out_status_label()
+
+                    # Update distribution tab display if available
+                    if "distribution_tab" in self.shared_data:
+                        try:
+                            dist_tab = self.shared_data["distribution_tab"]
+                            if hasattr(dist_tab, "update_pay_period_display"):
+                                dist_tab.update_pay_period_display()
+                        except Exception as e:
+                            print(f"⚠️ Erreur lors de la mise à jour de l'affichage: {e}")
+                else:
+                    raise ValueError("Data storage verification failed")
+                    
+            except Exception as e:
+                print(f"⚠️ Erreur lors du stockage des données partagées: {e}")
+                self.status_label.config(
+                    text="❌ Erreur lors du transfert des données",
+                    foreground="#DC143C")
+                self.fade_out_status_label()
+                
+        except Exception as e:
+            print(f"⚠️ Erreur critique lors de l'export: {e}")
+            self.status_label.config(
+                text="❌ Erreur critique lors de l'export",
+                foreground="#DC143C")
+            self.fade_out_status_label()
