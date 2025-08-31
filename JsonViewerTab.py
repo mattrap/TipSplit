@@ -29,16 +29,15 @@ class JsonViewerTab:
         self.view_mode = StringVar(value="distribution")
 
         # --- Folders ---
-        # Per-day JSONs: {backend}/{pay_period}/*.json
+
         self.backend_json_root = get_backend_dir()
 
-        # Combined pay files now ALSO live under backend (no JSONs outside app folder):
-        # {backend}/combined_pay/{pay_period}.Json
-        self.combined_pay_root = os.path.join(self.backend_json_root, "combined_pay")
-        os.makedirs(self.combined_pay_root, exist_ok=True)
+        # Per-day JSONs: {backend}/daily/{pay_period}/*.json
+        self.base_dir = os.path.join(self.backend_json_root, "daily")
 
-        # Base directory where pay-period folders live (each pay period is a subfolder here)
-        self.base_dir = self.backend_json_root
+        # Combined pay summaries: {backend}/pay/{pay_period}/combined.Json
+        self.pay_root = os.path.join(self.backend_json_root, "pay")
+        os.makedirs(self.pay_root, exist_ok=True)
 
         # Map pay-period label -> absolute path
         self.period_paths = {}
@@ -352,7 +351,8 @@ class JsonViewerTab:
         Handler for the 'Créer fichier combiné' button.
 
         It combines all *.json distributions from the selected backend period folder and writes:
-            {backend}/combined_pay/{pay_period}.Json
+         {backend}/pay/{pay_period}/combined.Json
+
 
         (No JSONs are written outside the app folder.)
         """
@@ -378,7 +378,7 @@ class JsonViewerTab:
     def _combine_all_jsons_in_period(self, pay_period_path: str, pay_period_label: str) -> str:
         """
         Combine every *.json file in the selected backend pay-period folder into:
-            {backend}/combined_pay/{pay_period_label}.Json
+            {backend}/pay/{pay_period_label}/combined.Json
 
         The result contains:
             {
@@ -395,9 +395,9 @@ class JsonViewerTab:
         if not os.path.isdir(pay_period_path):
             raise FileNotFoundError(f"Dossier introuvable: {pay_period_path}")
 
-        out_name = f"{pay_period_label}.Json"
-        out_path = os.path.join(self.combined_pay_root, out_name)
-        os.makedirs(os.path.dirname(out_path), exist_ok=True)
+        out_dir = os.path.join(self.pay_root, pay_period_label)
+        os.makedirs(out_dir, exist_ok=True)
+        out_path = os.path.join(out_dir, "combined.Json")
 
         # Gather candidates from the selected pay-period folder
         all_jsons = sorted(
@@ -406,7 +406,7 @@ class JsonViewerTab:
         )
 
         # Exclude any known aggregate/final files if they exist inside the folder
-        excluded_names = {os.path.basename(out_path), f"{pay_period_label}_pay_data.json"}
+        excluded_names = {"combined.Json", f"{pay_period_label}_pay_data.json"}
         jsons_to_merge = [p for p in all_jsons if os.path.basename(p) not in excluded_names]
 
         combined = {
