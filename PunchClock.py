@@ -78,7 +78,7 @@ class PunchClockPopup:
         self.temp_hour = hour
 
         for btn in self.hour_buttons:
-            btn.config(bootstyle="light", width=5)
+            btn.config(bootstyle="light", width=5, state=DISABLED)
 
         for qb in self.quarter_buttons:
             qb.destroy()
@@ -97,9 +97,9 @@ class PunchClockPopup:
         self.quarter_buttons.append(hour_btn)
 
         quarter_offsets = {
-            ":00": (-75, 0),
+            ":00": (-50, 0),
             ":15": (0, 100),
-            ":30": (75, 0),
+            ":30": (50, 0),
             ":45": (0, -100),
         }
 
@@ -171,7 +171,7 @@ class PunchClockPopup:
 
     def reset_hour_buttons(self, *_):
         for btn in self.hour_buttons:
-            btn.config(bootstyle="outline-primary", width=5)
+            btn.config(bootstyle="outline-primary", width=5, state=NORMAL)
 
         for btn in self.quarter_buttons:
             btn.destroy()
