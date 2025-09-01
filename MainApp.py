@@ -113,6 +113,23 @@ def show_splash(root, image_path: str, duration_ms: int = 2500):
     root.after(duration_ms, lambda: splash.winfo_exists() and splash.destroy())
     return splash
 
+def fit_to_screen(win):
+    """Adjust the given window to fill the screen cross‑platform."""
+    # Windows/Linux: maximize
+    if win.tk.call('tk', 'windowingsystem') in ('x11', 'win32'):
+        try:
+            win.state('zoomed')
+            return
+        except Exception:
+            pass
+
+    # macOS: fill the whole screen (no margins), not fullscreen
+    if win.tk.call('tk', 'windowingsystem') == 'aqua':
+        win.update_idletasks()  # ensure correct screen metrics
+        sw = win.winfo_screenwidth()
+        sh = win.winfo_screenheight()
+        win.geometry(f"{sw}x{sh}+0+0")
+
 
 class TipSplitApp:
     def __init__(self, root):
@@ -121,7 +138,13 @@ class TipSplitApp:
 
         self.root = root
         self.root.title(f"{APP_NAME} v{APP_VERSION}")
-        self.root.geometry("800x850")
+
+        # Start with a size relative to the screen and immediately fit to screen
+        self.root.update_idletasks()
+        sw = self.root.winfo_screenwidth()
+        sh = self.root.winfo_screenheight()
+        self.root.geometry(f"{int(sw * 0.8)}x{int(sh * 0.85)}")
+        fit_to_screen(self.root)
 
         self._icon_refs = {}  # keep a reference so Tk doesn't GC the image
         set_app_icon(self.root, self._icon_refs)
@@ -302,24 +325,9 @@ if __name__ == "__main__":
         # Create the main app
         app = TipSplitApp(app_root)
 
-        # Fit to screen after widgets exist
-        def fit_to_screen(win):
-            # Windows/Linux: maximize
-            if win.tk.call('tk', 'windowingsystem') in ('x11', 'win32'):
-                try:
-                    win.state('zoomed')
-                    return
-                except Exception:
-                    pass
-
-            # macOS: fill the whole screen (no margins), not fullscreen
-            if win.tk.call('tk', 'windowingsystem') == 'aqua':
-                win.update_idletasks()  # ensure correct screen metrics
-                sw = win.winfo_screenwidth()
-                sh = win.winfo_screenheight()
-                win.geometry(f"{sw}x{sh}+0+0")
-
-        app_root.after(0, lambda: fit_to_screen(app_root))
+        # Remove splash once window is ready
+        if splash and splash.winfo_exists():
+            splash.destroy()
 
     # Start the app after the splash duration
     app_root.after(2500, start_main_app)
