@@ -127,7 +127,8 @@ class TimeSheet:
 
     def create_date_picker(self, parent):
         ttk.Label(parent, text="Remplir les heures du:", font=("Helvetica", 16, "bold")).pack(side=LEFT)
-        self.date_picker = DateEntry(parent, bootstyle="primary", dateformat="%d-%m-%Y", width=20)
+        self.date_format = "%d-%m-%Y"
+        self.date_picker = DateEntry(parent, bootstyle="primary", dateformat=self.date_format, width=20)
         self.date_picker.entry.bind("<Key>", lambda e: "break")  # block manual typing
         self.date_picker.pack(side=LEFT, padx=(10, 0))
         self.date_picker.entry.delete(0, END)
@@ -239,7 +240,7 @@ class TimeSheet:
                 return
 
             try:
-                datetime.strptime(date_str, self.date_picker.dateformat)
+                datetime.strptime(date_str, self.date_format)
             except ValueError:
                 log_debug("TimeSheet: Invalid date format; aborting export")
                 self.flash_date_field()
