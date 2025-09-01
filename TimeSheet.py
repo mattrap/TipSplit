@@ -11,6 +11,8 @@ from MenuBar import create_menu_bar
 from PunchClock import PunchClockPopup
 from tkinter import END
 
+from debug_log import log_debug
+
 # Use the centralized AppConfig helpers so paths work on all machines
 from AppConfig import ensure_employee_data_ready
 
@@ -218,88 +220,98 @@ class TimeSheet:
             self.tree.item(self.bussboy_total_row, values=("", "Total Bussboy", "", "", "", "", f"{bussboy_total:.2f}"))
 
     def export_filled_rows(self):
-        self._end_points_edit(commit=True)
-
-        export_data = []
-        current_section = None
-        date_str = self.date_picker.entry.get().strip()
-
-        print(f"🔍 TimeSheet: Starting export for date: {date_str}")
-
-        if not date_str:
-            self.flash_date_field()
-            self.status_label.config(text="⛔ Veuillez choisir une date!", foreground="#B22222")
-            self.fade_out_status_label()
-            return
-
+        log_debug("TimeSheet: export_filled_rows invoked")
         try:
-            datetime.strptime(date_str, self.date_picker.dateformat)
-        except ValueError:
-            self.flash_date_field()
-            self.status_label.config(text="⛔ Format de date invalide!", foreground="#B22222")
-            self.fade_out_status_label()
-            return
+            self._end_points_edit(commit=True)
 
-        for item in self.tree.get_children():
-            tags = self.tree.item(item, "tags")
-            values = self.tree.item(item, "values")
+            export_data = []
+            current_section = None
+            date_str = self.date_picker.entry.get().strip()
 
-            if "section" in tags:
-                section_label = values[1].strip("- ").strip()
-                current_section = section_label
-                print(f"🔍 TimeSheet: Found section: {current_section}")
-                continue
+            log_debug(f"TimeSheet: Starting export for date: {date_str}")
 
-            if "editable" not in tags:
-                continue
+            if not date_str:
+                log_debug("TimeSheet: No date selected; aborting export")
+                self.flash_date_field()
+                self.status_label.config(text="⛔ Veuillez choisir une date!", foreground="#B22222")
+                self.fade_out_status_label()
+                return
 
-            punch = self.punch_data.get(item, {})
             try:
-                total = float(punch.get("total", 0))
+                datetime.strptime(date_str, self.date_picker.dateformat)
             except ValueError:
-                total = 0
+                log_debug("TimeSheet: Invalid date format; aborting export")
+                self.flash_date_field()
+                self.status_label.config(text="⛔ Format de date invalide!", foreground="#B22222")
+                self.fade_out_status_label()
+                return
 
-            if total > 0:
-                entry = {
-                    "section": current_section,
-                    "number": values[0],
-                    "name": values[1],
-                    "points": values[2],  # uses edited value if present
-                    "in": punch.get("in", ""),
-                    "out": punch.get("out", ""),
-                    "hours": f"{total:.2f}"
-                }
-                export_data.append(entry)
-                print(f"🔍 TimeSheet: Adding entry: {entry}")
+            for item in self.tree.get_children():
+                tags = self.tree.item(item, "tags")
+                values = self.tree.item(item, "values")
 
-        print(f"🔍 TimeSheet: Total entries to export: {len(export_data)}")
+                if "section" in tags:
+                    section_label = values[1].strip("- ").strip()
+                    current_section = section_label
+                    log_debug(f"TimeSheet: Found section: {current_section}")
+                    continue
 
-        self.shared_data.setdefault("transfer", {})
-        self.shared_data["transfer"]["date"] = date_str
-        self.shared_data["transfer"]["entries"] = export_data
+                if "editable" not in tags:
+                    continue
 
-        print(f"🔍 TimeSheet: Data stored in shared_data: {self.shared_data['transfer']}")
+                punch = self.punch_data.get(item, {})
+                try:
+                    total = float(punch.get("total", 0))
+                except ValueError:
+                    total = 0
 
-        self.status_label.config(
-            text="✅ Les Heures ont été enregistrées et transférées à l'onglet Distribution",
-            foreground="#228B22")
-        self.fade_out_status_label()
+                if total > 0:
+                    entry = {
+                        "section": current_section,
+                        "number": values[0],
+                        "name": values[1],
+                        "points": values[2],  # uses edited value if present
+                        "in": punch.get("in", ""),
+                        "out": punch.get("out", ""),
+                        "hours": f"{total:.2f}"
+                    }
+                    export_data.append(entry)
+                    log_debug(f"TimeSheet: Adding entry: {entry}")
 
-        if self.reload_distribution_data:
-            print("🔍 TimeSheet: Calling reload_distribution_data")
-            self.reload_distribution_data()
-        else:
-            print("⚠️ TimeSheet: reload_distribution_data is None")
+            log_debug(f"TimeSheet: Total entries to export: {len(export_data)}")
+            if not export_data:
+                log_debug("TimeSheet: No rows with recorded hours found")
 
-        if "distribution_tab" in self.shared_data:
-            dist_tab = self.shared_data["distribution_tab"]
-            if hasattr(dist_tab, "update_pay_period_display"):
-                print("🔍 TimeSheet: Calling update_pay_period_display")
-                dist_tab.update_pay_period_display()
+            self.shared_data.setdefault("transfer", {})
+            self.shared_data["transfer"]["date"] = date_str
+            self.shared_data["transfer"]["entries"] = export_data
+
+            log_debug(f"TimeSheet: Data stored in shared_data: {self.shared_data['transfer']}")
+
+            self.status_label.config(
+                text="✅ Les Heures ont été enregistrées et transférées à l'onglet Distribution",
+                foreground="#228B22")
+            self.fade_out_status_label()
+
+            if self.reload_distribution_data:
+                log_debug("TimeSheet: Calling reload_distribution_data")
+                self.reload_distribution_data()
             else:
-                print("⚠️ TimeSheet: distribution_tab has no update_pay_period_display method")
-        else:
-            print("⚠️ TimeSheet: distribution_tab not found in shared_data")
+                log_debug("TimeSheet: reload_distribution_data is None")
+
+            if "distribution_tab" in self.shared_data:
+                dist_tab = self.shared_data["distribution_tab"]
+                if hasattr(dist_tab, "update_pay_period_display"):
+                    log_debug("TimeSheet: Calling update_pay_period_display")
+                    dist_tab.update_pay_period_display()
+                else:
+                    log_debug("TimeSheet: distribution_tab has no update_pay_period_display method")
+            else:
+                log_debug("TimeSheet: distribution_tab not found in shared_data")
+        except Exception as e:
+            log_debug(f"TimeSheet: Unexpected error during export_filled_rows: {e}")
+            self.status_label.config(text="⛔ Erreur inattendue - voir TipSplit_debug.log", foreground="#B22222")
+            self.fade_out_status_label()
 
     def on_click(self, event):
         region = self.tree.identify("region", event.x, event.y)
