@@ -8,6 +8,7 @@ from tkinter import messagebox
 from MenuBar import create_menu_bar
 
 from AppConfig import ensure_employee_data_ready, get_employee_files
+from ui_scale import scale
 
 
 class MasterSheet:
@@ -28,8 +29,8 @@ class MasterSheet:
 
         # ---------- STYLE: Treeview row height ----------
         style = ttk.Style()
-        style.configure("Treeview", rowheight=25)         # base
-        style.configure("primary.Treeview", rowheight=34) # bootstyle="primary"
+        style.configure("Treeview", rowheight=scale(25))         # base
+        style.configure("primary.Treeview", rowheight=scale(34)) # bootstyle="primary"
 
         # Header Frame
         header_frame = ttk.Frame(self.root)
@@ -108,9 +109,9 @@ class MasterSheet:
         return tree
 
     def _configure_columns(self, tree):
-        tree.column("number", width=120, anchor=CENTER)
-        tree.column("name", width=260, anchor=W)
-        tree.column("points", width=120, anchor=CENTER)
+        tree.column("number", width=scale(120), anchor=CENTER)
+        tree.column("name", width=scale(260), anchor=W)
+        tree.column("points", width=scale(120), anchor=CENTER)
 
     # ---------------------------
     # Sorting

@@ -15,6 +15,7 @@ from ttkbootstrap.constants import *
 
 # JSONs (per-day and combined) live in the internal backend
 from AppConfig import get_backend_dir
+from ui_scale import scale
 
 
 class JsonViewerTab:
@@ -106,7 +107,9 @@ class JsonViewerTab:
                    "cash", "sur_paye", "frais_admin",
                    "A", "B", "D", "E", "F",
                    "section")
-        self.tree = ttk.Treeview(emp_frame, columns=columns, show="headings")
+        style = ttk.Style()
+        style.configure("Scaled.Treeview", rowheight=scale(25))
+        self.tree = ttk.Treeview(emp_frame, columns=columns, show="headings", style="Scaled.Treeview")
         headings = {
             "id": "#",
             "name": "Nom",
@@ -125,7 +128,7 @@ class JsonViewerTab:
             self.tree.heading(col, text=headings[col])
             anchor = "w" if col in ("name", "section") else "center"
             width = 180 if col == "name" else (90 if col not in ("section",) else 110)
-            self.tree.column(col, anchor=anchor, width=width, stretch=True)
+            self.tree.column(col, anchor=anchor, width=scale(width), stretch=True)
 
         self.tree.pack(fill=BOTH, expand=True)
 

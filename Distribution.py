@@ -3,6 +3,7 @@ from ttkbootstrap.constants import *
 from PayPeriods import get_selected_period
 from Export import export_distribution_from_tab
 from datetime import datetime
+from ui_scale import scale
 
 class DistributionTab:
     def __init__(self, root, shared_data):
@@ -172,7 +173,7 @@ class DistributionTab:
             self.distribution_tree.heading(col, text=headers[col])
             width = 180 if col == "name" else 90
             anchor = W if col == "name" else CENTER
-            self.distribution_tree.column(col, width=width, anchor=anchor)
+            self.distribution_tree.column(col, width=scale(width), anchor=anchor)
 
         self.distribution_tree.pack(fill=BOTH, expand=True)
         self.distribution_tree.tag_configure("section", font=("Helvetica", 14, "bold"), background="#b4c7af")
