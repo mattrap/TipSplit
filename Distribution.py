@@ -23,6 +23,7 @@ class DistributionTab:
         self.sur_paye_color = "#258dba"
         self.cash_color = "#28a745"
         self.grey_color = "#6c757d"
+        self.depot_color = "#dc3545"
 
     def setup_layout(self, container):
         self.view_mode = ttk.StringVar(value="distribution")
@@ -265,9 +266,9 @@ class DistributionTab:
 
         self.service_owes_cuisine_label = ttk.Label(
             cuisine_frame,
-            text="À remettre: 0.00 $",
+            text="Cuisine: 0.00 $",
             font=("Helvetica", 11, "bold"),
-            foreground="#dc3545"
+            foreground=self.grey_color,
         )
         self.service_owes_cuisine_label.pack(anchor=W, pady=(5, 2))
 
@@ -389,25 +390,19 @@ class DistributionTab:
     def distribution_net_values(self, bussboy_amount):
         ventes_net, depot_net, frais_admin, cash_initial = self.get_inputs()
 
-        amount_cuisine = ventes_net * 0.01
-        cash_cuisine = 0.0
-        depot_cuisine = 0.0
+        cuisine_amount, cuisine_source = self.calculate_cuisine_distribution(ventes_net, depot_net)
+        cash_cuisine = cuisine_amount if cuisine_source == "cash" else 0.0
+        depot_cuisine = cuisine_amount if cuisine_source == "depot" else 0.0
 
         if depot_net < 0:
             # depot négatif : dépôt à distribuer
             depot_available = abs(depot_net)
             service_owes_admin = 0.0
 
-            # Utiliser le dépot pour la cuisine si possible
-            if depot_available >= amount_cuisine:
-                depot_cuisine = amount_cuisine
-            else:
-                cash_cuisine = self.round_cash_up(amount_cuisine)
         else:
             # depot positif : le service doit remettre le dépôt à l'administration
             depot_available = 0.0
             service_owes_admin = self.round_cash_up(depot_net)
-            cash_cuisine = self.round_cash_up(amount_cuisine)
 
 
         """"Bussboys"""
@@ -432,7 +427,8 @@ class DistributionTab:
             "remaining_depot_for_service": remaining_depot_for_service,
             "cash_available_for_service": cash_available_for_service,
             "frais_admin_service": frais_admin_service,
-            "montant_cuisine": max(cash_cuisine, depot_cuisine)
+            "montant_cuisine": cuisine_amount,
+            "cuisine_source": cuisine_source,
         }
 
     def declaration_net_values(self):
@@ -444,6 +440,13 @@ class DistributionTab:
             "arrondi_comptant": arrondi_comptant,
             "tips_due": tips_due,
         }
+
+    def calculate_cuisine_distribution(self, ventes_net, depot_net):
+        """Determine how cuisine amount is distributed (cash or depot)."""
+        amount_cuisine = ventes_net * 0.01
+        if depot_net < 0 and abs(depot_net) >= amount_cuisine:
+            return amount_cuisine, "depot"
+        return self.round_cash_up(amount_cuisine), "cash"
 
     def get_bussboy_percentage_and_amount(self):
         # Count bussboys
@@ -787,11 +790,18 @@ class DistributionTab:
         self.update_label(self.bussboy_sur_paye_label, net_values["bussboy_sur_paye_distributed"], "Sur Paye",self.sur_paye_color)
         self.update_label(self.bussboy_cash_label, net_values["bussboy_cash_distributed"], "Cash", self.cash_color)
 
-        self.update_label(self.service_owes_admin_label, net_values["service_owes_admin"], "À remettre", "#dc3545")
+        self.update_label(self.service_owes_admin_label, net_values["service_owes_admin"], "À remettre", self.depot_color)
 
         self.update_label(self.service_sur_paye_label, net_values["remaining_depot_for_service"], "Sur Paye",self.sur_paye_color)
         self.update_label(self.service_cash_label, net_values["cash_available_for_service"], "Cash", self.cash_color)
         self.update_label(self.service_admin_fees_label, net_values["frais_admin_service"], "Frais Admin",self.sur_paye_color)
+
+        cuisine_prefix = "CASH cuisine" if net_values["cuisine_source"] == "cash" else "DEPOT cuisine"
+        cuisine_color = self.cash_color if net_values["cuisine_source"] == "cash" else self.depot_color
+        self.service_owes_cuisine_label.config(
+            text=f"{cuisine_prefix}: {net_values['montant_cuisine']:.2f} $",
+            foreground=cuisine_color if net_values["montant_cuisine"] != 0 else self.grey_color,
+        )
 
         # 1) Use current rows to rebuild weights
         self.build_distribution_weights()
