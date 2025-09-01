@@ -174,7 +174,7 @@ class DistributionTab:
             self.distribution_tree.column(col, width=width, anchor=anchor)
 
         self.distribution_tree.pack(fill=BOTH, expand=True)
-        self.distribution_tree.tag_configure("section", font=("Helvetica", 10, "bold"), background="#b4c7af")
+        self.distribution_tree.tag_configure("section", font=("Helvetica", 14, "bold"), background="#b4c7af")
 
         # Back-compat alias
         self.tree = self.distribution_tree
@@ -387,32 +387,52 @@ class DistributionTab:
         return ((int(value * 4 + 0.9999)) / 4.0)
 
     def distribution_net_values(self, bussboy_amount):
-        _, depot_net, frais_admin, cash_initial = self.get_inputs()
+        ventes_net, depot_net, frais_admin, cash_initial = self.get_inputs()
+
+        amount_cuisine = ventes_net * 0.01
+        cash_cuisine = 0.0
+        depot_cuisine = 0.0
 
         if depot_net < 0:
+            # depot négatif : dépôt à distribuer
             depot_available = abs(depot_net)
             service_owes_admin = 0.0
+
+            # Utiliser le dépot pour la cuisine si possible
+            if depot_available >= amount_cuisine:
+                depot_cuisine = amount_cuisine
+            else:
+                cash_cuisine = self.round_cash_up(amount_cuisine)
         else:
+            # depot positif : le service doit remettre le dépôt à l'administration
             depot_available = 0.0
             service_owes_admin = self.round_cash_up(depot_net)
+            cash_cuisine = self.round_cash_up(amount_cuisine)
 
+
+        """"Bussboys"""
         # zero si depot_available = 0 sinon combien le dépot couvre
-        bussboy_sur_paye_distributed = min(bussboy_amount, depot_available)
+        bussboy_sur_paye_distributed = min(bussboy_amount, (depot_available - depot_cuisine))
         # montant manquant du dépot pour couvrir bussboys, ROUND UP
         bussboy_cash_distributed = self.round_cash_up(bussboy_amount - bussboy_sur_paye_distributed)
 
+        """Reste pour le service"""
         # dépot net apres bussboy payés ou zero si il en reste plus
-        remaining_depot_for_service = max(0.0, depot_available - bussboy_sur_paye_distributed)
+        remaining_depot_for_service = max(0.0, depot_available - depot_cuisine - bussboy_sur_paye_distributed)
         # cash after paying the dépot and paying the bussboys, montant dù ou 0
-        cash_available_for_service = max(0.0, cash_initial - service_owes_admin - bussboy_cash_distributed)
+        cash_available_for_service = max(0.0, cash_initial - service_owes_admin - cash_cuisine - bussboy_cash_distributed)
+
+        """Frais admin"""
         frais_admin_service = frais_admin * 0.8
+
         return {
             "bussboy_sur_paye_distributed": bussboy_sur_paye_distributed,
             "bussboy_cash_distributed": bussboy_cash_distributed,
             "service_owes_admin": service_owes_admin,
             "remaining_depot_for_service": remaining_depot_for_service,
             "cash_available_for_service": cash_available_for_service,
-            "frais_admin_service": frais_admin_service
+            "frais_admin_service": frais_admin_service,
+            "montant_cuisine": max(cash_cuisine, depot_cuisine)
         }
 
     def declaration_net_values(self):
@@ -427,7 +447,7 @@ class DistributionTab:
 
     def get_bussboy_percentage_and_amount(self):
         # Count bussboys
-        count = 0
+        bb_count = 0
         in_bussboy_section = False
 
         for item in self.tree.get_children():
@@ -442,26 +462,12 @@ class DistributionTab:
                 try:
                     float(values[3])  # hours
                     float(values[2])  # points
-                    count += 1
+                    bb_count += 1
                 except (ValueError, TypeError):
                     continue
 
-        # Determine percentage based on count and shift
-        shift = self.shift_var.get()
+        bussboy_percentage = 0.025 if bb_count >= 1 else 0.0
 
-        if shift == "Matin":
-            bussboy_percentage = 0.03 if count >= 1 else 0.0
-        elif shift == "Soir":
-            if count == 0:
-                bussboy_percentage = 0.0
-            elif count == 1:
-                bussboy_percentage = 0.02
-            elif count == 2:
-                bussboy_percentage = 0.025
-            else:
-                bussboy_percentage = 0.03
-        else:
-            bussboy_percentage = 0.0
 
         # Calculate amount
         ventes_net, _, _, _ = self.get_inputs()
@@ -756,15 +762,6 @@ class DistributionTab:
 
         print(f"🔍 Tree populated with {len(organized_data)} entries")
         print(f"🔍 Tree items created: {len(tree_items)}")
-        
-        # Force UI refresh (especially important for bundled apps)
-        self._force_ui_refresh()
-        
-        # Verify tree content
-        if not self._verify_tree_content():
-            print("⚠️ WARNING: Tree content verification failed!")
-            # Try one more refresh
-            self.root.after(500, self._force_ui_refresh)
         
         # Process the data
         try:
