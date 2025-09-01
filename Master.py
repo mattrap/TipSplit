@@ -109,9 +109,12 @@ class MasterSheet:
         return tree
 
     def _configure_columns(self, tree):
-        tree.column("number", width=scale(120), anchor=CENTER)
-        tree.column("name", width=scale(260), anchor=W)
-        tree.column("points", width=scale(120), anchor=CENTER)
+        num_w = scale(120)
+        name_w = scale(260)
+        pts_w = scale(120)
+        tree.column("number", width=num_w, minwidth=num_w, anchor=CENTER)
+        tree.column("name", width=name_w, minwidth=name_w, anchor=W)
+        tree.column("points", width=pts_w, minwidth=pts_w, anchor=CENTER)
 
     # ---------------------------
     # Sorting

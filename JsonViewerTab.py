@@ -141,7 +141,8 @@ class JsonViewerTab:
             self.tree.heading(col, text=headings[col])
             anchor = "w" if col in ("name", "section") else "center"
             width = 180 if col == "name" else (90 if col not in ("section",) else 110)
-            self.tree.column(col, anchor=anchor, width=scale(width), stretch=True)
+            scaled_width = scale(width)
+            self.tree.column(col, anchor=anchor, width=scaled_width, minwidth=scaled_width, stretch=True)
 
         self.tree.pack(fill=BOTH, expand=True)
 
