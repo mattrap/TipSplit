@@ -294,9 +294,12 @@ class TimeSheet:
                 foreground="#228B22")
             self.fade_out_status_label()
 
-            if self.reload_distribution_data:
-                log_debug("TimeSheet: Calling reload_distribution_data")
-                self.reload_distribution_data()
+            if callable(self.reload_distribution_data):
+                try:
+                    log_debug("TimeSheet: Calling reload_distribution_data")
+                    self.reload_distribution_data()
+                except Exception as e:
+                    log_debug(f"TimeSheet: reload_distribution_data failed: {e}")
             else:
                 log_debug("TimeSheet: reload_distribution_data is None")
 

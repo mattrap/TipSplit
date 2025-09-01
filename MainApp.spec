@@ -2,6 +2,8 @@
 
 block_cipher = None
 
+from PyInstaller.utils.hooks import collect_data_files
+
 a = Analysis(
     ['MainApp.py'],
     pathex=[],
@@ -12,7 +14,7 @@ a = Analysis(
         # include icons and splash images
         ('assets/icons/*', 'assets/icons'),
         ('assets/images/*', 'assets/images'),
-    ],
+    ] + collect_data_files('ttkbootstrap'),
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
