@@ -2,6 +2,7 @@ import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 from tkinter import Toplevel
 from datetime import datetime, timedelta
+from icon_helper import set_app_icon
 
 
 class PunchClockPopup:
@@ -20,6 +21,8 @@ class PunchClockPopup:
         self.selected_minute_btn = None
 
         self.window = Toplevel(master)
+        self._icon_refs = {}
+        set_app_icon(self.window, self._icon_refs)
         employee_selected = master.item(row_id, "values")[1]  # column 1 is the name
         self.window.title(f"Sélectionner les heures pour     {employee_selected}")
         self.window.grab_set()

@@ -10,6 +10,7 @@ import tempfile
 import shutil
 import time
 from typing import Dict, Any, Tuple
+from icon_helper import set_app_icon
 
 try:
     # Import lazily-safe: these may be unavailable in headless contexts
@@ -308,6 +309,10 @@ def ensure_pdf_dir_selected(root=None) -> str:
             try:
                 if root is None and Tk is not None:
                     temp_root = Tk()
+                    try:
+                        set_app_icon(temp_root)
+                    except Exception:
+                        pass
                     temp_root.withdraw()
                 messagebox.showinfo(
                     "Dossier d’exportation PDF requis",
