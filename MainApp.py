@@ -1,4 +1,4 @@
-import os, sys, platform
+import os, sys
 import tkinter as tk
 from PIL import Image, ImageTk  # pillow is in requirements
 import ttkbootstrap as ttk
@@ -13,6 +13,7 @@ from Pay import PayTab
 from AppConfig import ensure_pdf_dir_selected, ensure_default_employee_files
 from updater import maybe_auto_check
 from version import APP_NAME, APP_VERSION
+from icon_helper import set_app_icon
 
 
 # ---------- Resource & Icon helpers (dev + PyInstaller) ----------
@@ -23,37 +24,6 @@ def _resource_path(relative_path: str) -> str:
     """
     base_path = getattr(sys, "_MEIPASS", os.path.abspath("."))
     return os.path.join(base_path, relative_path)
-
-def set_app_icon(root, keep_ref_container: dict | None = None):
-    """
-    Try platform-preferred icon first (.ico on Windows via iconbitmap),
-    then fall back to a PNG via wm_iconphoto (cross‑platform).
-    keep_ref_container keeps a reference to PhotoImage to avoid GC.
-    """
-    system = platform.system().lower()
-    ico_path = _resource_path("assets/icons/app_icon.ico")
-    png_path = _resource_path("assets/icons/app_icon.png")
-
-    if system == "windows" and os.path.exists(ico_path):
-        try:
-            root.iconbitmap(ico_path)
-            return
-        except Exception:
-            pass  # fall back to PNG
-
-    if os.path.exists(png_path):
-        try:
-            photo = ImageTk.PhotoImage(Image.open(png_path))
-            root.wm_iconphoto(True, photo)
-            # prevent image from being garbage‑collected
-            if keep_ref_container is not None:
-                keep_ref_container["_app_icon_photo"] = photo
-            else:
-                root._app_icon_photo = photo
-            return
-        except Exception:
-            pass
-    # If neither worked, silently continue (no icon set).
 
 
 # ---------- Splash / Loading screen ----------
