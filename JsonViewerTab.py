@@ -103,13 +103,26 @@ class JsonViewerTab:
         emp_frame = ttk.LabelFrame(self.frame, text="Données des employés")
         emp_frame.pack(fill=BOTH, expand=True, padx=10, pady=(5, 10))
 
-        columns = ("id", "name", "hours",
-                   "cash", "sur_paye", "frais_admin",
-                   "A", "B", "D", "E", "F",
-                   "section")
+        columns = (
+            "id",
+            "name",
+            "hours",
+            "cash",
+            "sur_paye",
+            "frais_admin",
+            "A",
+            "B",
+            "D",
+            "E",
+            "F",
+            "section",
+        )
+
         style = ttk.Style()
-        style.configure("Scaled.Treeview", rowheight=scale(25))
-        self.tree = ttk.Treeview(emp_frame, columns=columns, show="headings", style="Scaled.Treeview")
+        style.configure("Custom.Treeview", rowheight=scale(25))
+        self.tree = ttk.Treeview(
+            emp_frame, columns=columns, show="headings", style="Custom.Treeview"
+        )
         headings = {
             "id": "#",
             "name": "Nom",
