@@ -14,6 +14,7 @@ from AppConfig import ensure_pdf_dir_selected, ensure_default_employee_files
 from updater import maybe_auto_check
 from version import APP_NAME, APP_VERSION
 from icon_helper import set_app_icon
+from ui_scale import init_scaling
 
 
 # ---------- Resource & Icon helpers (dev + PyInstaller) ----------
@@ -108,6 +109,8 @@ class TipSplitApp:
 
         self.root = root
         self.root.title(f"{APP_NAME} v{APP_VERSION}")
+        # Configure DPI-aware scaling so the UI looks consistent across displays
+        init_scaling(self.root)
 
         # Start with a size relative to the screen and immediately fit to screen
         self.root.update_idletasks()

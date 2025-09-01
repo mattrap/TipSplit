@@ -15,6 +15,7 @@ from debug_log import log_debug
 
 # Use the centralized AppConfig helpers so paths work on all machines
 from AppConfig import ensure_employee_data_ready
+from ui_scale import scale
 
 
 class TimeSheet:
@@ -52,7 +53,7 @@ class TimeSheet:
 
         # --- Taller rows style ---
         style = ttk.Style()
-        style.configure("Custom.Treeview", font=("Helvetica", 14), rowheight=35)
+        style.configure("Custom.Treeview", font=("Helvetica", 14), rowheight=scale(35))
         style.configure("Custom.Treeview.Heading", font=("Helvetica", 14, "bold"))
         # -------------------------
 
@@ -90,13 +91,13 @@ class TimeSheet:
             else:
                 self.tree.heading(col, text=label)
 
-        self.tree.column("number", width=100, anchor=CENTER)
-        self.tree.column("name", width=200, anchor=W)
-        self.tree.column("points", width=100, anchor=CENTER)
-        self.tree.column("punch", width=50, anchor=CENTER)
-        self.tree.column("in", width=80, anchor=CENTER)
-        self.tree.column("out", width=80, anchor=CENTER)
-        self.tree.column("total", width=80, anchor=CENTER)
+        self.tree.column("number", width=scale(100), anchor=CENTER)
+        self.tree.column("name", width=scale(200), anchor=W)
+        self.tree.column("points", width=scale(100), anchor=CENTER)
+        self.tree.column("punch", width=scale(50), anchor=CENTER)
+        self.tree.column("in", width=scale(80), anchor=CENTER)
+        self.tree.column("out", width=scale(80), anchor=CENTER)
+        self.tree.column("total", width=scale(80), anchor=CENTER)
 
         self.tree.tag_configure("section", font=("Helvetica", 16, "bold"), background="#b4c7af")
         self.tree.tag_configure("hover", background="#e0f7fa")

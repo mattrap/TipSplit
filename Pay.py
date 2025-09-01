@@ -26,6 +26,7 @@ from tkinter import StringVar, END, Listbox, Text, messagebox
 from ttkbootstrap.constants import *
 
 from AppConfig import get_backend_dir  # JSON_ROOT
+from ui_scale import scale
 
 class PayTab:
     def __init__(self, master):
@@ -90,7 +91,7 @@ class PayTab:
         paned.pack(fill=BOTH, expand=True, padx=10, pady=(0, 10))
 
         # Left (Employee panel) — wider default width
-        left = ttk.Frame(paned, width=340)
+        left = ttk.Frame(paned, width=scale(340))
         left.pack_propagate(False)
         paned.add(left, weight=1)
 
@@ -150,7 +151,7 @@ class PayTab:
 
         for c in self.all_cols:
             self.shift_tree.heading(c, text=base_headings[c])
-            self.shift_tree.column(c, width=widths[c], anchor=anchors[c], stretch=True)
+            self.shift_tree.column(c, width=scale(widths[c]), anchor=anchors[c], stretch=True)
 
         # Zebra striping via tags
         self.shift_tree.tag_configure("odd", background="#f7f7fa")
