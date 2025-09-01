@@ -151,7 +151,8 @@ class PayTab:
 
         for c in self.all_cols:
             self.shift_tree.heading(c, text=base_headings[c])
-            self.shift_tree.column(c, width=scale(widths[c]), anchor=anchors[c], stretch=True)
+            w = scale(widths[c])
+            self.shift_tree.column(c, width=w, minwidth=w, anchor=anchors[c], stretch=True)
 
         # Zebra striping via tags
         self.shift_tree.tag_configure("odd", background="#f7f7fa")

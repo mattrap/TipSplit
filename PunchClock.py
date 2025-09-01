@@ -3,6 +3,7 @@ from ttkbootstrap.constants import *
 from tkinter import Toplevel
 from datetime import datetime, timedelta
 from icon_helper import set_app_icon
+from ui_scale import scale
 
 
 class PunchClockPopup:
@@ -27,21 +28,21 @@ class PunchClockPopup:
         self.window.title(f"Sélectionner les heures pour     {employee_selected}")
         self.window.grab_set()
         self.window.resizable(False, False)
-        self.window.geometry("600x400")
+        self.window.geometry(f"{scale(600)}x{scale(400)}")
 
-        self.main_frame = ttk.Frame(self.window, padding=10)
+        self.main_frame = ttk.Frame(self.window, padding=scale(10))
         self.main_frame.pack(fill=BOTH, expand=True)
 
         self.label_start = ttk.Label(self.main_frame, text="Heure d'entrée: ",
                                      font=("Helvetica", 16, "bold"), bootstyle="primary")
-        self.label_start.pack(pady=(5, 2))
+        self.label_start.pack(pady=(scale(5), scale(2)))
 
         self.label_end = ttk.Label(self.main_frame, text="Heure de sortie: ",
                                    font=("Helvetica", 16, "bold"), bootstyle="primary")
-        self.label_end.pack(pady=(0, 10))
+        self.label_end.pack(pady=(0, scale(10)))
 
         self.hour_frame = ttk.Frame(self.main_frame)
-        self.hour_frame.pack(pady=(0, 10))
+        self.hour_frame.pack(pady=(0, scale(10)))
         self.hour_buttons = []
         self.quarter_buttons = []
 
@@ -54,11 +55,11 @@ class PunchClockPopup:
                 command=lambda h=hour: self.expand_hour_button(h)
             )
             row, col = divmod(hour, 6)
-            btn.grid(row=row, column=col, padx=5, pady=5)
+            btn.grid(row=row, column=col, padx=scale(5), pady=scale(5))
             self.hour_buttons.append(btn)
 
         self.control_frame = ttk.Frame(self.main_frame)
-        self.control_frame.pack(pady=(10, 0))
+        self.control_frame.pack(pady=(scale(10), 0))
 
         self.reset_btn = ttk.Button(
             self.control_frame,
@@ -66,7 +67,7 @@ class PunchClockPopup:
             bootstyle="danger-outline",
             command=self.reset
         )
-        self.reset_btn.pack(side=LEFT, padx=10)
+        self.reset_btn.pack(side=LEFT, padx=scale(10))
 
         self.save_btn = ttk.Button(
             self.control_frame,
@@ -74,7 +75,7 @@ class PunchClockPopup:
             bootstyle="success",
             command=self.save_and_close
         )
-        self.save_btn.pack(side=LEFT, padx=10)
+        self.save_btn.pack(side=LEFT, padx=scale(10))
         self.save_btn.config(state=DISABLED)
 
     def expand_hour_button(self, hour):
@@ -87,8 +88,8 @@ class PunchClockPopup:
             qb.destroy()
         self.quarter_buttons.clear()
 
-        target_x = 300
-        target_y = 160
+        target_x = scale(300)
+        target_y = scale(160)
 
         hour_btn = ttk.Button(
             self.main_frame,
@@ -100,10 +101,10 @@ class PunchClockPopup:
         self.quarter_buttons.append(hour_btn)
 
         quarter_offsets = {
-            ":00": (-50, 0),
-            ":15": (0, 100),
-            ":30": (50, 0),
-            ":45": (0, -100),
+            ":00": (-scale(50), 0),
+            ":15": (0, scale(100)),
+            ":30": (scale(50), 0),
+            ":45": (0, -scale(100)),
         }
 
         for label, (dy, dx) in quarter_offsets.items():
