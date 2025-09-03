@@ -36,6 +36,7 @@ class DistributionTab:
         self.create_shift_and_export_buttons(top_frame)
         self.create_input_fields(container)
         self.create_summary_panels(self.input_frame)
+        self.create_helper_panel(container)
         self.create_distribution_treeview(container)
 
     def create_header_labels(self, parent):
@@ -143,6 +144,31 @@ class DistributionTab:
         self.create_service_summary_panel(parent)
         self.create_depots_summary_pannel(parent)
         self.create_declaration_summary_panel(parent)
+
+    def create_helper_panel(self, parent):
+        helper_frame = ttk.LabelFrame(parent, text="Légende", padding=10)
+        helper_frame.pack(fill=X, pady=(0, 10))
+
+        ttk.Label(
+            helper_frame,
+            text="Cash à donner",
+            font=("Helvetica", 11, "bold"),
+            foreground=self.cash_color,
+        ).pack(side=LEFT, padx=10)
+
+        ttk.Label(
+            helper_frame,
+            text="Sur paye",
+            font=("Helvetica", 11, "bold"),
+            foreground=self.sur_paye_color,
+        ).pack(side=LEFT, padx=10)
+
+        ttk.Label(
+            helper_frame,
+            text="Dépot sur paye",
+            font=("Helvetica", 11, "bold"),
+            foreground=self.depot_color,
+        ).pack(side=LEFT, padx=10)
 
     def create_distribution_treeview(self, parent):
         group = ttk.LabelFrame(parent, text="Résumé du shift", padding=10)
