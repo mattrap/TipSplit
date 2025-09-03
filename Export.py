@@ -184,17 +184,17 @@ def draw_distribution_panels(c, y, tab):
     c.drawString(50, y, "Résumé des valeures de distribution:")
     y -= 20
 
+    # ---- Depot panels first ----
     c.setFont("Helvetica-Bold", 10)
-    c.drawString(60, y, "SERVICE")
+    c.drawString(60, y, "DÉPOT")
     y -= 15
     c.setFont("Helvetica", 10)
-    c.drawString(70, y, tab.service_sur_paye_label.cget("text"))
+    c.drawString(70, y, tab.service_owes_admin_label.cget("text"))
     y -= 15
-    c.drawString(70, y, tab.service_admin_fees_label.cget("text"))
-    y -= 15
-    c.drawString(70, y, tab.service_cash_label.cget("text"))
+    c.drawString(70, y, tab.service_owes_cuisine_label.cget("text"))
     y -= 25
 
+    # ---- Bussboys next ----
     c.setFont("Helvetica-Bold", 10)
     c.drawString(60, y, "BUSSBOYS")
     y -= 15
@@ -208,11 +208,16 @@ def draw_distribution_panels(c, y, tab):
     c.drawString(70, y, tab.bussboy_cash_label.cget("text"))
     y -= 25
 
+    # ---- Service (cuisine) last ----
     c.setFont("Helvetica-Bold", 10)
-    c.drawString(60, y, "DÉPOT")
+    c.drawString(60, y, "SERVICE")
     y -= 15
     c.setFont("Helvetica", 10)
-    c.drawString(70, y, tab.service_owes_admin_label.cget("text"))
+    c.drawString(70, y, tab.service_sur_paye_label.cget("text"))
+    y -= 15
+    c.drawString(70, y, tab.service_admin_fees_label.cget("text"))
+    y -= 15
+    c.drawString(70, y, tab.service_cash_label.cget("text"))
     return y
 
 # -------------------- NEW: Declaration PDF helpers (Page 2) --------------------
