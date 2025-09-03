@@ -28,7 +28,8 @@ class PunchClockPopup:
         self.window.title(f"Sélectionner les heures pour     {employee_selected}")
         self.window.grab_set()
         self.window.resizable(False, False)
-        self.window.geometry(f"{scale(600)}x{scale(400)}")
+        # Let the window size itself to its contents so it remains compact
+        # on different display resolutions.
 
         self.main_frame = ttk.Frame(self.window, padding=scale(10))
         self.main_frame.pack(fill=BOTH, expand=True)
@@ -45,6 +46,8 @@ class PunchClockPopup:
         self.hour_frame.pack(pady=(0, scale(10)))
         self.hour_buttons = []
         self.quarter_buttons = []
+        # Frame used when selecting minutes; created once and packed on demand
+        self.quarter_frame = ttk.Frame(self.main_frame)
 
         for hour in range(24):
             btn = ttk.Button(
@@ -78,6 +81,9 @@ class PunchClockPopup:
         self.save_btn.pack(side=LEFT, padx=scale(10))
         self.save_btn.config(state=DISABLED)
 
+        # Finalize geometry based on content
+        self.window.update_idletasks()
+
     def expand_hour_button(self, hour):
         self.temp_hour = hour
 
@@ -88,36 +94,38 @@ class PunchClockPopup:
             qb.destroy()
         self.quarter_buttons.clear()
 
-        target_x = scale(300)
-        target_y = scale(160)
+        for child in self.quarter_frame.winfo_children():
+            child.destroy()
+        self.quarter_frame.pack(pady=(0, scale(10)))
 
         hour_btn = ttk.Button(
-            self.main_frame,
+            self.quarter_frame,
             text=f"{hour:02d}",
             width=7,
             bootstyle="primary"
         )
-        hour_btn.place(x=target_x, y=target_y, anchor="center")
+        hour_btn.grid(row=1, column=1, padx=scale(5), pady=scale(5))
         self.quarter_buttons.append(hour_btn)
 
-        quarter_offsets = {
-            ":00": (-scale(50), 0),
-            ":15": (0, scale(100)),
-            ":30": (scale(50), 0),
-            ":45": (0, -scale(100)),
+        positions = {
+            ":00": (1, 0),
+            ":15": (2, 1),
+            ":30": (1, 2),
+            ":45": (0, 1),
         }
 
-        for label, (dy, dx) in quarter_offsets.items():
+        for label, (r, c) in positions.items():
             qbtn = ttk.Button(
-                self.main_frame,
+                self.quarter_frame,
                 text=label,
                 width=5,
                 bootstyle="outline-primary",
                 command=lambda m=label: self.select_minute(m)
             )
-            qbtn.place(x=target_x + dx, y=target_y + dy, anchor="center")
-            qbtn.tkraise()
+            qbtn.grid(row=r, column=c, padx=scale(5), pady=scale(5))
             self.quarter_buttons.append(qbtn)
+
+        self.window.update_idletasks()
 
         if self.is_selecting_start:
             self.label_start.config(text=f"Heure d'entrée : {hour:02d}:00", bootstyle="primary")
@@ -180,9 +188,12 @@ class PunchClockPopup:
         for btn in self.quarter_buttons:
             btn.destroy()
         self.quarter_buttons.clear()
+        self.quarter_frame.pack_forget()
 
         self.selected_hour_btn = None
         self.selected_minute_btn = None
+
+        self.window.update_idletasks()
 
     def get_start_time_str(self):
         return f"{self.start_time[0]:02d}:{self.start_time[1]:02d}" if self.start_time else "??:??"
