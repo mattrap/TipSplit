@@ -184,17 +184,17 @@ def draw_distribution_panels(c, y, tab):
     c.drawString(50, y, "Résumé des valeures de distribution:")
     y -= 20
 
+    # ---- Depot panels first ----
     c.setFont("Helvetica-Bold", 10)
-    c.drawString(60, y, "SERVICE")
+    c.drawString(60, y, "DÉPOT")
     y -= 15
     c.setFont("Helvetica", 10)
-    c.drawString(70, y, tab.service_sur_paye_label.cget("text"))
+    c.drawString(70, y, tab.service_owes_admin_label.cget("text"))
     y -= 15
-    c.drawString(70, y, tab.service_admin_fees_label.cget("text"))
-    y -= 15
-    c.drawString(70, y, tab.service_cash_label.cget("text"))
+    c.drawString(70, y, tab.service_owes_cuisine_label.cget("text"))
     y -= 25
 
+    # ---- Bussboys next ----
     c.setFont("Helvetica-Bold", 10)
     c.drawString(60, y, "BUSSBOYS")
     y -= 15
@@ -208,11 +208,16 @@ def draw_distribution_panels(c, y, tab):
     c.drawString(70, y, tab.bussboy_cash_label.cget("text"))
     y -= 25
 
+    # ---- Service (cuisine) last ----
     c.setFont("Helvetica-Bold", 10)
-    c.drawString(60, y, "DÉPOT")
+    c.drawString(60, y, "SERVICE")
     y -= 15
     c.setFont("Helvetica", 10)
-    c.drawString(70, y, tab.service_owes_admin_label.cget("text"))
+    c.drawString(70, y, tab.service_sur_paye_label.cget("text"))
+    y -= 15
+    c.drawString(70, y, tab.service_admin_fees_label.cget("text"))
+    y -= 15
+    c.drawString(70, y, tab.service_cash_label.cget("text"))
     return y
 
 # -------------------- NEW: Declaration PDF helpers (Page 2) --------------------
@@ -222,7 +227,7 @@ def draw_declaration_input_section(c, y, decl_fields, ventes_declarees):
     y -= 20
 
     c.setFont("Helvetica", 10)
-    for label in ["Ventes Totales", "Clients", "Arrondi comptant", "Tips due"]:
+    for label in ["Ventes Totales", "Clients", "Tips due", "Ventes Nourriture"]:
         raw = str(decl_fields.get(label, ""))
         c.drawString(50, y, f"{label:<18}: {raw}")
         y -= 18
@@ -390,8 +395,8 @@ def json_export(date, shift, pay_period, fields_sanitized, decl_fields_raw, entr
     decl_vals_out = {
         "Ventes Totales": str(decl_fields_raw.get("Ventes Totales", "")),
         "Clients": str(decl_fields_raw.get("Clients", "")),
-        "Arrondi comptant": str(decl_fields_raw.get("Arrondi comptant", "")),
         "Tips due": str(decl_fields_raw.get("Tips due", "")),
+        "Ventes Nourriture": str(decl_fields_raw.get("Ventes Nourriture", "")),
     }
 
     data = {
@@ -477,14 +482,14 @@ def _draw_employee_pdf(out_path: str, period_label: str, info: dict):
     y = page_h - margin
 
     # Spacing constants
-    h1_gap = 18
-    sub_gap = 22
-    sec_title_gap = 16
-    line_h = 12
-    hdr_gap = 14
-    row_gap = 12
-    rule_gap = 8
-    bottom_margin = 60
+    h1_gap = 24
+    sub_gap = 30
+    sec_title_gap = 22
+    line_h = 18
+    hdr_gap = 18
+    row_gap = 18
+    rule_gap = 12
+    bottom_margin = 80
 
     def new_canvas(path):
         c = canvas.Canvas(path, pagesize=letter)

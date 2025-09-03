@@ -4,6 +4,7 @@ from PayPeriods import get_selected_period
 from Export import export_distribution_from_tab
 from datetime import datetime
 from ui_scale import scale
+from tree_utils import fit_columns
 
 class DistributionTab:
     def __init__(self, root, shared_data):
@@ -36,6 +37,7 @@ class DistributionTab:
         self.create_shift_and_export_buttons(top_frame)
         self.create_input_fields(container)
         self.create_summary_panels(self.input_frame)
+        self.create_helper_panel(container)
         self.create_distribution_treeview(container)
 
     def create_header_labels(self, parent):
@@ -127,7 +129,7 @@ class DistributionTab:
         self.declaration_group.grid(row=0, column=1, sticky=N, padx=(10, 10))
 
         self.declaration_fields = {}
-        declaration_labels = ["Ventes Totales", "Clients", "Arrondi comptant", "Tips due"]
+        declaration_labels = ["Ventes Totales", "Clients", "Tips due", "Ventes Nourriture"]
         for i, label in enumerate(declaration_labels):
             ttk.Label(self.declaration_group, text=label + ":", font=("Helvetica", 10)).grid(
                 row=i, column=0, sticky=W, pady=5
@@ -143,6 +145,31 @@ class DistributionTab:
         self.create_service_summary_panel(parent)
         self.create_depots_summary_pannel(parent)
         self.create_declaration_summary_panel(parent)
+
+    def create_helper_panel(self, parent):
+        helper_frame = ttk.LabelFrame(parent, text="Légende", padding=10)
+        helper_frame.pack(fill=X, pady=(0, 10))
+
+        ttk.Label(
+            helper_frame,
+            text="Cash à donner",
+            font=("Helvetica", 11, "bold"),
+            foreground=self.cash_color,
+        ).pack(side=LEFT, padx=10)
+
+        ttk.Label(
+            helper_frame,
+            text="Sur paye",
+            font=("Helvetica", 11, "bold"),
+            foreground=self.sur_paye_color,
+        ).pack(side=LEFT, padx=10)
+
+        ttk.Label(
+            helper_frame,
+            text="Dépot sur paye",
+            font=("Helvetica", 11, "bold"),
+            foreground=self.depot_color,
+        ).pack(side=LEFT, padx=10)
 
     def create_distribution_treeview(self, parent):
         group = ttk.LabelFrame(parent, text="Résumé du shift", padding=10)
@@ -169,14 +196,17 @@ class DistributionTab:
             "E": "E",
             "F": "F",
         }
+        self._width_map = {}
         for col in self.distribution_tree["columns"]:
             self.distribution_tree.heading(col, text=headers[col])
             width = 180 if col == "name" else 90
             anchor = W if col == "name" else CENTER
             scaled_width = scale(width)
-            self.distribution_tree.column(col, width=scaled_width, minwidth=scaled_width, anchor=anchor)
+            self._width_map[col] = scaled_width
+            self.distribution_tree.column(col, width=scaled_width, minwidth=scale(20), anchor=anchor, stretch=True)
 
         self.distribution_tree.pack(fill=BOTH, expand=True)
+        fit_columns(self.distribution_tree, self._width_map)
         self.distribution_tree.tag_configure("section", font=("Helvetica", 14, "bold"), background="#b4c7af")
 
         # Back-compat alias
@@ -377,9 +407,9 @@ class DistributionTab:
 
         ventes_totales = parse_float(self.declaration_fields["Ventes Totales"].get())
         clients = parse_float(self.declaration_fields["Clients"].get())
-        arrondi_comptant = parse_float(self.declaration_fields["Arrondi comptant"].get())
         tips_due = parse_float(self.declaration_fields["Tips due"].get())
-        return ventes_totales, clients, arrondi_comptant, tips_due
+        ventes_nourriture = parse_float(self.declaration_fields["Ventes Nourriture"].get())
+        return ventes_totales, clients, tips_due, ventes_nourriture
 
     def round_cash_down(self, value):
         """Rounds down to the nearest 0.25 (for distributing)"""
@@ -391,8 +421,9 @@ class DistributionTab:
 
     def distribution_net_values(self, bussboy_amount):
         ventes_net, depot_net, frais_admin, cash_initial = self.get_inputs()
+        _, _, _, ventes_nourriture = self.get_declaration_inputs()
 
-        cuisine_amount, cuisine_source = self.calculate_cuisine_distribution(ventes_net, depot_net)
+        cuisine_amount, cuisine_source = self.calculate_cuisine_distribution(ventes_nourriture, depot_net)
         cash_cuisine = cuisine_amount if cuisine_source == "cash" else 0.0
         depot_cuisine = cuisine_amount if cuisine_source == "depot" else 0.0
 
@@ -434,18 +465,17 @@ class DistributionTab:
         }
 
     def declaration_net_values(self):
-        ventes_totales, clients, arrondi_comptant, tips_due = self.get_declaration_inputs()
-        ventes_declarees = (ventes_totales - clients - arrondi_comptant) / 1.14975 if 1.14975 != 0 else 0.0
+        ventes_totales, clients, tips_due, ventes_nourriture = self.get_declaration_inputs()
+        ventes_declarees = (ventes_totales - clients) / 1.14975 if 1.14975 != 0 else 0.0
         return {
             "ventes_declarees": ventes_declarees,
-            # placeholders for future fields:
-            "arrondi_comptant": arrondi_comptant,
             "tips_due": tips_due,
+            "ventes_nourriture": ventes_nourriture,
         }
 
-    def calculate_cuisine_distribution(self, ventes_net, depot_net):
+    def calculate_cuisine_distribution(self, ventes_nourriture, depot_net):
         """Determine how cuisine amount is distributed (cash or depot)."""
-        amount_cuisine = ventes_net * 0.01
+        amount_cuisine = ventes_nourriture * 0.01
         if depot_net < 0 and abs(depot_net) >= amount_cuisine:
             return amount_cuisine, "depot"
         return self.round_cash_up(amount_cuisine), "cash"
@@ -610,7 +640,7 @@ class DistributionTab:
         Service rows:
           A_i = Ventes déclarées * w_i / W_service
           B_i = Tips due         * w_i / W_service
-          E_i = Bussboy amount   * w_i / W_service
+          E_i = (Bussboy + cuisine) amount * w_i / W_service
           D_i = 0
           F_i = B_i + D_i - E_i = B_i - E_i
         Bussboy rows:
@@ -640,6 +670,14 @@ class DistributionTab:
         # Bussboy amount total from your existing rule
         _, bussboy_amount_total = self.get_bussboy_percentage_and_amount()
 
+        # Cuisine amount total
+        net_vals = self.distribution_net_values(bussboy_amount_total)
+        cuisine_amount_total = net_vals.get("montant_cuisine", 0.0)
+
+        # Ensure cuisine amount is still distributed even when bussboy amount is 0
+        total_e_amount = cuisine_amount_total + bussboy_amount_total
+
+
         # First pass: locate section
         current = None
         for item in self.tree.get_children():
@@ -662,7 +700,7 @@ class DistributionTab:
                 if W_service > 0 and w > 0:
                     A = ventes_decl_total * (w / W_service)
                     B = tips_due_total * (w / W_service)
-                    E = bussboy_amount_total * (w / W_service)
+                    E = total_e_amount * (w / W_service)
                 else:
                     A = B = E = 0.0
                 D = 0.0
@@ -798,7 +836,7 @@ class DistributionTab:
         self.update_label(self.service_cash_label, net_values["cash_available_for_service"], "Cash", self.cash_color)
         self.update_label(self.service_admin_fees_label, net_values["frais_admin_service"], "Frais Admin",self.sur_paye_color)
 
-        cuisine_prefix = "CASH cuisine" if net_values["cuisine_source"] == "cash" else "DEPOT cuisine"
+        cuisine_prefix = "CASH cuisine" if net_values["cuisine_source"] == "cash" else "ME DOIT cuisine"
         cuisine_color = self.cash_color if net_values["cuisine_source"] == "cash" else self.depot_color
         self.service_owes_cuisine_label.config(
             text=f"{cuisine_prefix}: {net_values['montant_cuisine']:.2f} $",

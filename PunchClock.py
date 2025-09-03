@@ -28,7 +28,8 @@ class PunchClockPopup:
         self.window.title(f"Sélectionner les heures pour     {employee_selected}")
         self.window.grab_set()
         self.window.resizable(False, False)
-        self.window.geometry(f"{scale(600)}x{scale(400)}")
+        # Let the window size itself to its contents so it remains compact
+        # on different display resolutions.
 
         self.main_frame = ttk.Frame(self.window, padding=scale(10))
         self.main_frame.pack(fill=BOTH, expand=True)
