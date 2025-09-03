@@ -477,14 +477,14 @@ def _draw_employee_pdf(out_path: str, period_label: str, info: dict):
     y = page_h - margin
 
     # Spacing constants
-    h1_gap = 18
-    sub_gap = 22
-    sec_title_gap = 16
-    line_h = 12
-    hdr_gap = 14
-    row_gap = 12
-    rule_gap = 8
-    bottom_margin = 60
+    h1_gap = 24
+    sub_gap = 30
+    sec_title_gap = 22
+    line_h = 18
+    hdr_gap = 18
+    row_gap = 18
+    rule_gap = 12
+    bottom_margin = 80
 
     def new_canvas(path):
         c = canvas.Canvas(path, pagesize=letter)
