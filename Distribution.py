@@ -836,7 +836,7 @@ class DistributionTab:
         self.update_label(self.service_cash_label, net_values["cash_available_for_service"], "Cash", self.cash_color)
         self.update_label(self.service_admin_fees_label, net_values["frais_admin_service"], "Frais Admin",self.sur_paye_color)
 
-        cuisine_prefix = "CASH cuisine" if net_values["cuisine_source"] == "cash" else "DEPOT cuisine"
+        cuisine_prefix = "CASH cuisine" if net_values["cuisine_source"] == "cash" else "ME DOIT cuisine"
         cuisine_color = self.cash_color if net_values["cuisine_source"] == "cash" else self.depot_color
         self.service_owes_cuisine_label.config(
             text=f"{cuisine_prefix}: {net_values['montant_cuisine']:.2f} $",
