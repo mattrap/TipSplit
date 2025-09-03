@@ -16,6 +16,7 @@ from ttkbootstrap.constants import *
 # JSONs (per-day and combined) live in the internal backend
 from AppConfig import get_backend_dir
 from ui_scale import scale
+from tree_utils import fit_columns
 
 
 class JsonViewerTab:
@@ -137,14 +138,17 @@ class JsonViewerTab:
             "F": "F",
             "section": "Section",
         }
+        self._width_map = {}
         for col in columns:
             self.tree.heading(col, text=headings[col])
             anchor = "w" if col in ("name", "section") else "center"
             width = 180 if col == "name" else (90 if col not in ("section",) else 110)
             scaled_width = scale(width)
-            self.tree.column(col, anchor=anchor, width=scaled_width, minwidth=scaled_width, stretch=True)
+            self._width_map[col] = scaled_width
+            self.tree.column(col, anchor=anchor, width=scaled_width, minwidth=scale(20), stretch=True)
 
         self.tree.pack(fill=BOTH, expand=True)
+        fit_columns(self.tree, self._width_map)
 
         # Default to Distribution view
         self.show_distribution_view()

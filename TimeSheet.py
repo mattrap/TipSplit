@@ -16,6 +16,7 @@ from debug_log import log_debug
 # Use the centralized AppConfig helpers so paths work on all machines
 from AppConfig import ensure_employee_data_ready
 from ui_scale import scale
+from tree_utils import fit_columns
 
 
 class TimeSheet:
@@ -99,13 +100,26 @@ class TimeSheet:
         in_w = scale(80)
         out_w = scale(80)
         total_w = scale(80)
-        self.tree.column("number", width=num_w, minwidth=num_w, anchor=CENTER)
-        self.tree.column("name", width=name_w, minwidth=name_w, anchor=W)
-        self.tree.column("points", width=pts_w, minwidth=pts_w, anchor=CENTER)
-        self.tree.column("punch", width=punch_w, minwidth=punch_w, anchor=CENTER)
-        self.tree.column("in", width=in_w, minwidth=in_w, anchor=CENTER)
-        self.tree.column("out", width=out_w, minwidth=out_w, anchor=CENTER)
-        self.tree.column("total", width=total_w, minwidth=total_w, anchor=CENTER)
+        self._width_map = {
+            "number": num_w,
+            "name": name_w,
+            "points": pts_w,
+            "punch": punch_w,
+            "in": in_w,
+            "out": out_w,
+            "total": total_w,
+        }
+        for col, w, anchor in [
+            ("number", num_w, CENTER),
+            ("name", name_w, W),
+            ("points", pts_w, CENTER),
+            ("punch", punch_w, CENTER),
+            ("in", in_w, CENTER),
+            ("out", out_w, CENTER),
+            ("total", total_w, CENTER),
+        ]:
+            self.tree.column(col, width=w, minwidth=scale(20), anchor=anchor, stretch=True)
+        fit_columns(self.tree, self._width_map)
 
         self.tree.tag_configure("section", font=("Helvetica", 16, "bold"), background="#b4c7af")
         self.tree.tag_configure("hover", background="#e0f7fa")

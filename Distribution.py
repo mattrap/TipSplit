@@ -4,6 +4,7 @@ from PayPeriods import get_selected_period
 from Export import export_distribution_from_tab
 from datetime import datetime
 from ui_scale import scale
+from tree_utils import fit_columns
 
 class DistributionTab:
     def __init__(self, root, shared_data):
@@ -195,14 +196,17 @@ class DistributionTab:
             "E": "E",
             "F": "F",
         }
+        self._width_map = {}
         for col in self.distribution_tree["columns"]:
             self.distribution_tree.heading(col, text=headers[col])
             width = 180 if col == "name" else 90
             anchor = W if col == "name" else CENTER
             scaled_width = scale(width)
-            self.distribution_tree.column(col, width=scaled_width, minwidth=scaled_width, anchor=anchor)
+            self._width_map[col] = scaled_width
+            self.distribution_tree.column(col, width=scaled_width, minwidth=scale(20), anchor=anchor, stretch=True)
 
         self.distribution_tree.pack(fill=BOTH, expand=True)
+        fit_columns(self.distribution_tree, self._width_map)
         self.distribution_tree.tag_configure("section", font=("Helvetica", 14, "bold"), background="#b4c7af")
 
         # Back-compat alias

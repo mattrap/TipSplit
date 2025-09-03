@@ -9,6 +9,7 @@ from MenuBar import create_menu_bar
 
 from AppConfig import ensure_employee_data_ready, get_employee_files
 from ui_scale import scale
+from tree_utils import fit_columns
 
 
 class MasterSheet:
@@ -112,9 +113,11 @@ class MasterSheet:
         num_w = scale(120)
         name_w = scale(260)
         pts_w = scale(120)
-        tree.column("number", width=num_w, minwidth=num_w, anchor=CENTER)
-        tree.column("name", width=name_w, minwidth=name_w, anchor=W)
-        tree.column("points", width=pts_w, minwidth=pts_w, anchor=CENTER)
+        width_map = {"number": num_w, "name": name_w, "points": pts_w}
+        tree.column("number", width=num_w, minwidth=scale(20), anchor=CENTER, stretch=True)
+        tree.column("name", width=name_w, minwidth=scale(20), anchor=W, stretch=True)
+        tree.column("points", width=pts_w, minwidth=scale(20), anchor=CENTER, stretch=True)
+        fit_columns(tree, width_map)
 
     # ---------------------------
     # Sorting

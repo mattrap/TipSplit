@@ -27,6 +27,7 @@ from ttkbootstrap.constants import *
 
 from AppConfig import get_backend_dir  # JSON_ROOT
 from ui_scale import scale
+from tree_utils import fit_columns
 
 class PayTab:
     def __init__(self, master):
@@ -139,9 +140,16 @@ class PayTab:
             "D": "D",
         }
         widths = {
-            "date": 160, "hours": 100, "cash": 110,
-            "sur_paye": 110, "frais_admin": 120,
-            "A": 80, "B": 80, "E": 80, "F": 80, "D": 80
+            "date": 160,
+            "hours": 100,
+            "cash": 110,
+            "sur_paye": 110,
+            "frais_admin": 120,
+            "A": 80,
+            "B": 80,
+            "E": 80,
+            "F": 80,
+            "D": 80,
         }
         anchors = {
             "date": "w", "hours": "e", "cash": "e",
@@ -149,16 +157,18 @@ class PayTab:
             "A": "e", "B": "e", "E": "e", "F": "e", "D": "e"
         }
 
+        self._width_map = {c: scale(widths[c]) for c in self.all_cols}
         for c in self.all_cols:
             self.shift_tree.heading(c, text=base_headings[c])
-            w = scale(widths[c])
-            self.shift_tree.column(c, width=w, minwidth=w, anchor=anchors[c], stretch=True)
+            w = self._width_map[c]
+            self.shift_tree.column(c, width=w, minwidth=scale(20), anchor=anchors[c], stretch=True)
 
         # Zebra striping via tags
         self.shift_tree.tag_configure("odd", background="#f7f7fa")
         self.shift_tree.tag_configure("even", background="#ffffff")
 
         self.shift_tree.pack(fill=BOTH, expand=True, padx=6, pady=6)
+        fit_columns(self.shift_tree, self._width_map)
 
     # -----------------------
     # Load combined files (new layout + legacy fallback)
