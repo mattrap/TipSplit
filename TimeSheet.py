@@ -51,11 +51,13 @@ class TimeSheet:
         self.status_label = ttk.Label(header_frame, text="", font=("Helvetica", 14))
         self.status_label.pack(side=LEFT, padx=10)
 
-        # --- Taller rows style ---
+        # --- Table style with primary theme ---
         style = ttk.Style()
-        style.configure("Custom.Treeview", font=("Helvetica", 14), rowheight=scale(35))
-        style.configure("Custom.Treeview.Heading", font=("Helvetica", 14, "bold"))
-        # -------------------------
+        style.configure("Treeview", font=("Helvetica", 14), rowheight=scale(35))
+        style.configure("Treeview.Heading", font=("Helvetica", 14, "bold"))
+        style.configure("primary.Treeview", font=("Helvetica", 14), rowheight=scale(35))
+        style.configure("primary.Treeview.Heading", font=("Helvetica", 14, "bold"))
+        # -------------------------------------
 
         # Treeview + scrollbar
         tree_frame = ttk.Frame(content)
@@ -66,7 +68,6 @@ class TimeSheet:
             columns=("number", "name", "points", "punch", "in", "out", "total"),
             show="headings",
             bootstyle="primary",
-            style="Custom.Treeview",
             selectmode="none",
         )
 
