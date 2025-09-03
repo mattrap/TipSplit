@@ -640,7 +640,7 @@ class DistributionTab:
         Service rows:
           A_i = Ventes déclarées * w_i / W_service
           B_i = Tips due         * w_i / W_service
-          E_i = Bussboy amount   * w_i / W_service
+          E_i = (Bussboy + cuisine) amount * w_i / W_service
           D_i = 0
           F_i = B_i + D_i - E_i = B_i - E_i
         Bussboy rows:
@@ -670,6 +670,14 @@ class DistributionTab:
         # Bussboy amount total from your existing rule
         _, bussboy_amount_total = self.get_bussboy_percentage_and_amount()
 
+        # Cuisine amount total
+        net_vals = self.distribution_net_values(bussboy_amount_total)
+        cuisine_amount_total = net_vals.get("montant_cuisine", 0.0)
+
+        # Ensure cuisine amount is still distributed even when bussboy amount is 0
+        total_e_amount = cuisine_amount_total + bussboy_amount_total
+
+
         # First pass: locate section
         current = None
         for item in self.tree.get_children():
@@ -692,7 +700,7 @@ class DistributionTab:
                 if W_service > 0 and w > 0:
                     A = ventes_decl_total * (w / W_service)
                     B = tips_due_total * (w / W_service)
-                    E = bussboy_amount_total * (w / W_service)
+                    E = total_e_amount * (w / W_service)
                 else:
                     A = B = E = 0.0
                 D = 0.0
