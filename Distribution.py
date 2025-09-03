@@ -129,7 +129,7 @@ class DistributionTab:
         self.declaration_group.grid(row=0, column=1, sticky=N, padx=(10, 10))
 
         self.declaration_fields = {}
-        declaration_labels = ["Ventes Totales", "Clients", "Arrondi comptant", "Tips due"]
+        declaration_labels = ["Ventes Totales", "Clients", "Tips due", "Ventes Nourriture"]
         for i, label in enumerate(declaration_labels):
             ttk.Label(self.declaration_group, text=label + ":", font=("Helvetica", 10)).grid(
                 row=i, column=0, sticky=W, pady=5
@@ -407,9 +407,9 @@ class DistributionTab:
 
         ventes_totales = parse_float(self.declaration_fields["Ventes Totales"].get())
         clients = parse_float(self.declaration_fields["Clients"].get())
-        arrondi_comptant = parse_float(self.declaration_fields["Arrondi comptant"].get())
         tips_due = parse_float(self.declaration_fields["Tips due"].get())
-        return ventes_totales, clients, arrondi_comptant, tips_due
+        ventes_nourriture = parse_float(self.declaration_fields["Ventes Nourriture"].get())
+        return ventes_totales, clients, tips_due, ventes_nourriture
 
     def round_cash_down(self, value):
         """Rounds down to the nearest 0.25 (for distributing)"""
@@ -421,8 +421,9 @@ class DistributionTab:
 
     def distribution_net_values(self, bussboy_amount):
         ventes_net, depot_net, frais_admin, cash_initial = self.get_inputs()
+        _, _, _, ventes_nourriture = self.get_declaration_inputs()
 
-        cuisine_amount, cuisine_source = self.calculate_cuisine_distribution(ventes_net, depot_net)
+        cuisine_amount, cuisine_source = self.calculate_cuisine_distribution(ventes_nourriture, depot_net)
         cash_cuisine = cuisine_amount if cuisine_source == "cash" else 0.0
         depot_cuisine = cuisine_amount if cuisine_source == "depot" else 0.0
 
@@ -464,18 +465,17 @@ class DistributionTab:
         }
 
     def declaration_net_values(self):
-        ventes_totales, clients, arrondi_comptant, tips_due = self.get_declaration_inputs()
-        ventes_declarees = (ventes_totales - clients - arrondi_comptant) / 1.14975 if 1.14975 != 0 else 0.0
+        ventes_totales, clients, tips_due, ventes_nourriture = self.get_declaration_inputs()
+        ventes_declarees = (ventes_totales - clients) / 1.14975 if 1.14975 != 0 else 0.0
         return {
             "ventes_declarees": ventes_declarees,
-            # placeholders for future fields:
-            "arrondi_comptant": arrondi_comptant,
             "tips_due": tips_due,
+            "ventes_nourriture": ventes_nourriture,
         }
 
-    def calculate_cuisine_distribution(self, ventes_net, depot_net):
+    def calculate_cuisine_distribution(self, ventes_nourriture, depot_net):
         """Determine how cuisine amount is distributed (cash or depot)."""
-        amount_cuisine = ventes_net * 0.01
+        amount_cuisine = ventes_nourriture * 0.01
         if depot_net < 0 and abs(depot_net) >= amount_cuisine:
             return amount_cuisine, "depot"
         return self.round_cash_up(amount_cuisine), "cash"

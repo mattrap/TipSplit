@@ -222,7 +222,7 @@ def draw_declaration_input_section(c, y, decl_fields, ventes_declarees):
     y -= 20
 
     c.setFont("Helvetica", 10)
-    for label in ["Ventes Totales", "Clients", "Arrondi comptant", "Tips due"]:
+    for label in ["Ventes Totales", "Clients", "Tips due", "Ventes Nourriture"]:
         raw = str(decl_fields.get(label, ""))
         c.drawString(50, y, f"{label:<18}: {raw}")
         y -= 18
@@ -390,8 +390,8 @@ def json_export(date, shift, pay_period, fields_sanitized, decl_fields_raw, entr
     decl_vals_out = {
         "Ventes Totales": str(decl_fields_raw.get("Ventes Totales", "")),
         "Clients": str(decl_fields_raw.get("Clients", "")),
-        "Arrondi comptant": str(decl_fields_raw.get("Arrondi comptant", "")),
         "Tips due": str(decl_fields_raw.get("Tips due", "")),
+        "Ventes Nourriture": str(decl_fields_raw.get("Ventes Nourriture", "")),
     }
 
     data = {
