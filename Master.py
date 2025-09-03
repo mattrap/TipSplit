@@ -20,6 +20,27 @@ class MasterSheet:
 
         self.sort_directions = {}
         self.root = frame
+
+        # --------- Scrollable container ---------
+        self.canvas = ttk.Canvas(self.root)
+        self.canvas.pack(side=LEFT, fill=BOTH, expand=True)
+        vsb = ttk.Scrollbar(self.root, orient=VERTICAL, command=self.canvas.yview)
+        vsb.pack(side=RIGHT, fill=Y)
+        self.canvas.configure(yscrollcommand=vsb.set)
+
+        self.container = ttk.Frame(self.canvas)
+        window = self.canvas.create_window((0, 0), window=self.container, anchor="nw")
+
+        # Update scrollregion and width when widgets resize
+        self.container.bind(
+            "<Configure>",
+            lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all")),
+        )
+        self.canvas.bind(
+            "<Configure>",
+            lambda e, w=window: self.canvas.itemconfigure(w, width=e.width),
+        )
+
         self.unsaved_changes = False
         self.save_button = None
         self.back_button = None
@@ -34,7 +55,7 @@ class MasterSheet:
         style.configure("primary.Treeview", rowheight=scale(34)) # bootstyle="primary"
 
         # Header Frame
-        header_frame = ttk.Frame(self.root)
+        header_frame = ttk.Frame(self.container)
         header_frame.pack(fill=X, pady=(10, 0), padx=10)
 
         ttk.Label(header_frame, text="Feuille d'employé", font=("Helvetica", 16, "bold")).pack(side=LEFT)
@@ -43,8 +64,12 @@ class MasterSheet:
         self.button_container.pack(side=RIGHT)
 
         # Tables
-        self.service_tree = self.create_table_section(self.root, "Service", self.add_service_row, self.delete_service_row)
-        self.bussboy_tree = self.create_table_section(self.root, "Bussboy", self.add_bussboy_row, self.delete_bussboy_row)
+        self.service_tree = self.create_table_section(
+            self.container, "Service", self.add_service_row, self.delete_service_row
+        )
+        self.bussboy_tree = self.create_table_section(
+            self.container, "Bussboy", self.add_bussboy_row, self.delete_bussboy_row
+        )
 
         # Initial load
         self.load_data(self.service_tree, self.service_path, key="service")
