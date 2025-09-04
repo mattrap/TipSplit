@@ -39,6 +39,9 @@ Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription
 ; PyInstaller build output (folder tree)
 Source: "dist\TipSplit\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
 
+; Ensure icon asset is available for shortcuts
+Source: "assets\icons\app_icon.ico"; DestDir: "{app}\assets\icons"; Flags: ignoreversion
+
 ; Ship read-only defaults alongside the app (single files → no createallsubdirs needed)
 Source: "defaults\service_employees.json"; DestDir: "{app}\defaults"; Flags: ignoreversion
 Source: "defaults\bussboy_employees.json";  DestDir: "{app}\defaults"; Flags: ignoreversion
@@ -53,9 +56,9 @@ Type: files; Name: "{app}\service_employees.json"
 Type: files; Name: "{app}\bussboy_employees.json"
 
 [Icons]
-Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
+Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\assets\icons\app_icon.ico"
 Name: "{group}\Uninstall {#MyAppName}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon; IconFilename: "{app}\assets\icons\app_icon.ico"
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent

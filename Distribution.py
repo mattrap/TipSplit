@@ -437,7 +437,7 @@ class DistributionTab:
     def confirm_export(self):
         if not self.inputs_valid():
             return
-        if messagebox.askyesno("Confirmation", "êtes vous sur que la distribution est complete?"):
+        if messagebox.askyesno("Confirmation", "Êtes-vous sûr que la distribution est complète ?"):
             export_distribution_from_tab(self)
 
     def round_cash_down(self, value):
