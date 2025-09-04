@@ -12,16 +12,18 @@ _ui_scale = 1.0
 def init_scaling(root):
     """Initialize global scaling based on the display's DPI.
 
-    Tk's default assumes a 96-DPI display.  Modern high-density
-    displays often report much higher values, so we derive a scale
-    factor relative to that baseline and clamp to at least ``1.0`` to
-    avoid tiny UIs on low-density screens.
+    Tk's default assumes a 72-DPI display.  Modern high-density
+    displays often report much higher values, so we derive separate
+    scaling factors for Tk's internal units and for any explicit pixel
+    values used by the program.  Pixel measurements are scaled relative
+    to a 96-DPI baseline and clamped to at least ``1.0`` to avoid tiny
+    UIs on low-density screens.
 
     Some packaged releases inadvertently inherit a non-default Tk
     scaling value from the build environment, resulting in an
     over-zoomed interface on normal displays.  To counter this we first
     read Tk's *current* scaling, compute the physical DPI, and only then
-    apply our own scaling relative to the 96-DPI baseline.
+    apply our own scaling relative to the actual display DPI.
     """
 
     global _ui_scale
@@ -38,14 +40,21 @@ def init_scaling(root):
         if current > 0:
             dpi /= current
 
-        # Derive our target scale relative to the standard 96‑DPI
-        # baseline used by most desktop environments.
+        # Tk's ``scaling`` is expressed in pixels per typographical
+        # point (1/72\").  Use the physical DPI to derive the correct
+        # value for fonts and other units, clamping to at least 1.0 so
+        # we never shrink the UI below the 72-DPI baseline.
+        tk_scale = max(1.0, dpi / 72.0) if dpi > 0 else current
+
+        # Compute our own geometry scaling relative to the more common
+        # 96-DPI desktop baseline.  This is used by :func:`scale` for any
+        # explicit pixel measurements.
         _ui_scale = max(1.0, dpi / 96.0) if dpi > 0 else 1.0
 
-        # Only apply the scaling if it differs meaningfully from the
+        # Only apply the Tk scaling if it differs meaningfully from the
         # existing value to avoid compounding adjustments.
-        if abs(current - _ui_scale) > 0.01:
-            root.tk.call("tk", "scaling", _ui_scale)
+        if abs(current - tk_scale) > 0.01:
+            root.tk.call("tk", "scaling", tk_scale)
     except Exception:
         _ui_scale = 1.0
     return _ui_scale
