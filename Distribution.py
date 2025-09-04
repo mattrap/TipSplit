@@ -5,6 +5,7 @@ from Export import export_distribution_from_tab
 from datetime import datetime
 from ui_scale import scale
 from tree_utils import fit_columns
+from tkinter import messagebox
 
 class DistributionTab:
     def __init__(self, root, shared_data):
@@ -20,6 +21,8 @@ class DistributionTab:
         container.pack(fill=BOTH, expand=True)
 
         self.setup_layout(container)
+
+        self.update_export_button_state()
 
     def set_theme_colors(self):
         self.sur_paye_color = "#258dba"
@@ -76,7 +79,7 @@ class DistributionTab:
         # RIGHT: Export (far right)
         self.export_button = ttk.Button(
             toggle_frame, text="📤 Exporter", width=12, bootstyle="success",
-            command=lambda: export_distribution_from_tab(self)
+            command=self.confirm_export, state=DISABLED
         )
         self.export_button.pack(side=RIGHT)
 
@@ -410,6 +413,32 @@ class DistributionTab:
         tips_due = parse_float(self.declaration_fields["Tips due"].get())
         ventes_nourriture = parse_float(self.declaration_fields["Ventes Nourriture"].get())
         return ventes_totales, clients, tips_due, ventes_nourriture
+
+    def inputs_valid(self):
+        def is_valid(entry):
+            text = entry.get().strip().replace(",", ".")
+            if not text:
+                return False
+            try:
+                float(text)
+                return True
+            except ValueError:
+                return False
+
+        all_entries = list(self.fields.values()) + list(self.declaration_fields.values())
+        return all(is_valid(e) for e in all_entries)
+
+    def update_export_button_state(self):
+        if self.inputs_valid():
+            self.export_button.config(state=NORMAL)
+        else:
+            self.export_button.config(state=DISABLED)
+
+    def confirm_export(self):
+        if not self.inputs_valid():
+            return
+        if messagebox.askyesno("Confirmation", "êtes vous sur que la distribution est complete?"):
+            export_distribution_from_tab(self)
 
     def round_cash_down(self, value):
         """Rounds down to the nearest 0.25 (for distributing)"""
@@ -816,6 +845,8 @@ class DistributionTab:
             traceback.print_exc()
 
     def process(self):
+        self.update_export_button_state()
+
         # Get user-entered inputs
         self.ventes_net, self.depot_net, self.frais_admin, self.cash = self.get_inputs()
 
