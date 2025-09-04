@@ -15,21 +15,15 @@ def _resource_path(relative_path: str) -> str:
 def set_app_icon(root, keep_ref_container: dict | None = None):
     """Set the application icon on a Tk window.
 
-    Tries platform-preferred icon first (.ico on Windows via iconbitmap),
-    then falls back to a PNG via wm_iconphoto (cross‑platform). Optional
-    keep_ref_container keeps a reference to PhotoImage to avoid GC.
+    Both ICO and PNG variants are applied so the icon displays in the
+    window title bar *and* the Windows taskbar/alt-tab switcher. Optional
+    ``keep_ref_container`` keeps a reference to ``PhotoImage`` to avoid GC.
     """
     system = platform.system().lower()
     ico_path = _resource_path("assets/icons/app_icon.ico")
     png_path = _resource_path("assets/icons/app_icon.png")
 
-    if system == "windows" and os.path.exists(ico_path):
-        try:
-            root.iconbitmap(ico_path)
-            return
-        except Exception:
-            pass  # fall back to PNG
-
+    # First try to set the PNG icon via wm_iconphoto (works cross-platform).
     if os.path.exists(png_path):
         try:
             photo = ImageTk.PhotoImage(Image.open(png_path))
@@ -38,7 +32,13 @@ def set_app_icon(root, keep_ref_container: dict | None = None):
                 keep_ref_container["_app_icon_photo"] = photo
             else:
                 root._app_icon_photo = photo
-            return
+        except Exception:
+            pass
+
+    # On Windows also set the ICO so the executable carries the icon.
+    if system == "windows" and os.path.exists(ico_path):
+        try:
+            root.iconbitmap(ico_path)
         except Exception:
             pass
     # If neither worked, silently continue (no icon set).
