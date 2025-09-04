@@ -3,6 +3,7 @@ import platform
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 from tkinter import filedialog, messagebox, BooleanVar
+from tkinter.simpledialog import askfloat
 from datetime import datetime
 
 # Config helpers
@@ -10,6 +11,7 @@ from AppConfig import (
     get_pdf_dir, set_pdf_dir, ensure_pdf_dir_selected,
     get_backend_dir, set_backend_dir,
     get_auto_check_updates, set_auto_check_updates,  # toggle for auto updates
+    get_ui_scale, set_ui_scale,
 )
 
 from updater import check_for_update
@@ -130,6 +132,35 @@ def create_menu_bar(root, app):
         label="Vérifier automatiquement les mises à jour",
         variable=_auto_updates_var,
         command=_toggle_auto_updates
+    )
+
+    # ----- UI scale override -----
+    settings_menu.add_separator()
+
+    def _adjust_ui_scale(parent):
+        current = get_ui_scale()
+        initial = current if current > 0 else 1.0
+        value = askfloat(
+            "Échelle de l'interface",
+            "Facteur de mise à l'échelle (0 = auto).\nEx: 1.25 pour 125%",
+            parent=parent,
+            initialvalue=initial,
+            minvalue=0.5,
+            maxvalue=4.0,
+        )
+        if value is not None:
+            try:
+                set_ui_scale(0.0 if value == 0 else value)
+                messagebox.showinfo(
+                    "Échelle enregistrée",
+                    "Redémarrez l'application pour appliquer la nouvelle échelle.",
+                )
+            except Exception as e:
+                messagebox.showerror("Erreur", f"Impossible d’enregistrer:\n{e}")
+
+    settings_menu.add_command(
+        label="Ajuster l'échelle de l'interface…",
+        command=lambda: _adjust_ui_scale(root),
     )
 
     settings_button["menu"] = settings_menu

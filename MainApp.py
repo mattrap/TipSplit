@@ -15,6 +15,8 @@ from updater import maybe_auto_check
 from version import APP_NAME, APP_VERSION
 from icon_helper import set_app_icon
 from ui_scale import init_scaling
+from ui_scale import init_scaling, enable_high_dpi_awareness
+
 
 
 # ---------- Resource & Icon helpers (dev + PyInstaller) ----------

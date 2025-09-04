@@ -24,7 +24,7 @@ APP_NAME = "TipSplit"
 CONFIG_FILENAME = "config.json"
 
 # Increment when you change the schema; migrate in _migrate_config()
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 DEFAULTS: Dict[str, Any] = {
     "exports_pdf_dir": "",        # ask the user on first run
@@ -34,6 +34,7 @@ DEFAULTS: Dict[str, Any] = {
     # New since v2 (future-proofing)
     "update_channel": "stable",   # stable / beta (if you add channels later)
     "auto_check_updates": True,
+    "ui_scale": 0.0,
 }
 
 # ----------------------------
@@ -157,6 +158,11 @@ def _migrate_config(cfg: Dict[str, Any]) -> Dict[str, Any]:
         cfg.setdefault("update_channel", DEFAULTS["update_channel"])
         cfg.setdefault("auto_check_updates", DEFAULTS["auto_check_updates"])
         version = 2
+
+    # -> v3: add UI scale override
+    if version < 3:
+        cfg.setdefault("ui_scale", DEFAULTS["ui_scale"])
+        version = 3
 
     cfg["version"] = SCHEMA_VERSION
     return cfg
@@ -383,4 +389,15 @@ def get_auto_check_updates() -> bool:
 def set_auto_check_updates(enabled: bool):
     cfg = load_config()
     cfg["auto_check_updates"] = bool(enabled)
+    save_config(cfg)
+
+def get_ui_scale() -> float:
+    try:
+        return float(load_config().get("ui_scale", 0.0))
+    except Exception:
+        return 0.0
+
+def set_ui_scale(scale: float):
+    cfg = load_config()
+    cfg["ui_scale"] = float(scale)
     save_config(cfg)
