@@ -15,7 +15,7 @@ a = Analysis(
         ('assets/icons/*', 'assets/icons'),
         ('assets/images/*', 'assets/images'),
     ] + collect_data_files('ttkbootstrap'),
-    hiddenimports=[],
+    hiddenimports=['PyPDF2'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
