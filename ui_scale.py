@@ -1,22 +1,30 @@
 """Utility functions for DPI-aware UI scaling.
 
-Call init_scaling(root) once after creating the Tk root to configure
-Tk's internal scaling based on the system's DPI.  Afterwards, use
-scale(value) to multiply pixel values so that widgets have a consistent
-physical size across displays.
+Call :func:`init_scaling` once after creating the ``Tk`` root to
+configure Tk's internal scaling based on the system's DPI. Afterwards,
+use :func:`scale` to multiply pixel values so that widgets have a
+consistent physical size across displays.
 """
 
 _ui_scale = 1.0
 
 
 def init_scaling(root):
-    """Initialize global scaling based on the display's DPI."""
+    """Initialize global scaling based on the display's DPI.
+
+    Tk's default assumes a 96-DPI display.  Modern high-density
+    displays often report much higher values, so we derive a scale
+    factor relative to that baseline and clamp to at least ``1.0`` to
+    avoid tiny UIs on low-density screens.
+    """
+
     global _ui_scale
     try:
-        # Tk uses pixels per point (1/72 inch) for its internal scaling.
-        # Query the number of pixels per inch and derive a scale factor.
+        # Query the number of pixels per inch and derive a scale factor
+        # relative to the standard 96 DPI baseline used by most desktop
+        # environments.
         dpi = root.winfo_fpixels("1i")
-        _ui_scale = dpi / 72.0 if dpi > 0 else 1.0
+        _ui_scale = max(1.0, dpi / 96.0) if dpi > 0 else 1.0
         root.tk.call("tk", "scaling", _ui_scale)
     except Exception:
         _ui_scale = 1.0
