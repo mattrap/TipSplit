@@ -21,10 +21,10 @@ def init_scaling(root):
     global _ui_scale
     try:
         # Query the number of pixels per inch and derive a scale factor
-        # relative to the standard 96 DPI baseline used by most desktop
+        # relative to the standard 72 DPI baseline used by most desktop
         # environments.
         dpi = root.winfo_fpixels("1i")
-        _ui_scale = max(1.0, dpi / 96.0) if dpi > 0 else 1.0
+        _ui_scale = max(1.0, dpi / 72.0) if dpi > 0 else 1.0
         root.tk.call("tk", "scaling", _ui_scale)
     except Exception:
         _ui_scale = 1.0
