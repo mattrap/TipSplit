@@ -89,8 +89,9 @@ class PunchClockPopup:
             qb.destroy()
         self.quarter_buttons.clear()
 
-        target_x = scale(300)
-        target_y = scale(160)
+        self.main_frame.update_idletasks()
+        target_x = self.main_frame.winfo_width() // 2
+        target_y = self.main_frame.winfo_height() // 2
 
         hour_btn = ttk.Button(
             self.main_frame,
