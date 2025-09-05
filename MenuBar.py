@@ -82,6 +82,36 @@ def create_menu_bar(root, app):
     settings_button = ttk.Menubutton(menu_bar, text="Réglages")
     settings_menu = ttk.Menu(settings_button, tearoff=0)
 
+    # ----- UI scale override -----
+    settings_menu.add_separator()
+
+    def _adjust_ui_scale(parent):
+        current = get_ui_scale()
+        initial = current if current > 0 else 1.0
+        value = askfloat(
+            "Échelle de l'interface",
+            "Facteur de mise à l'échelle (0 = auto).\nEx: 1.25 pour 125%",
+            parent=parent,
+            initialvalue=initial,
+            minvalue=0.5,
+            maxvalue=4.0,
+        )
+        if value is not None:
+            try:
+                set_ui_scale(0.0 if value == 0 else value)
+                messagebox.showinfo(
+                    "Échelle enregistrée",
+                    "Redémarrez l'application pour appliquer la nouvelle échelle.",
+                )
+            except Exception as e:
+                messagebox.showerror("Erreur", f"Impossible d’enregistrer:\n{e}")
+
+    settings_menu.add_command(
+        label="Ajuster l'échelle de l'interface…",
+        command=lambda: _adjust_ui_scale(root),
+    )
+    settings_menu.add_separator()
+
     # PDF export root
     settings_menu.add_command(
         label="Modifier le dossier d’exportation PDF…",
@@ -134,50 +164,23 @@ def create_menu_bar(root, app):
         command=_toggle_auto_updates
     )
 
-    # ----- UI scale override -----
-    settings_menu.add_separator()
-
-    def _adjust_ui_scale(parent):
-        current = get_ui_scale()
-        initial = current if current > 0 else 1.0
-        value = askfloat(
-            "Échelle de l'interface",
-            "Facteur de mise à l'échelle (0 = auto).\nEx: 1.25 pour 125%",
-            parent=parent,
-            initialvalue=initial,
-            minvalue=0.5,
-            maxvalue=4.0,
-        )
-        if value is not None:
-            try:
-                set_ui_scale(0.0 if value == 0 else value)
-                messagebox.showinfo(
-                    "Échelle enregistrée",
-                    "Redémarrez l'application pour appliquer la nouvelle échelle.",
-                )
-            except Exception as e:
-                messagebox.showerror("Erreur", f"Impossible d’enregistrer:\n{e}")
-
-    settings_menu.add_command(
-        label="Ajuster l'échelle de l'interface…",
-        command=lambda: _adjust_ui_scale(root),
-    )
-
     settings_button["menu"] = settings_menu
     settings_button.pack(side=LEFT, padx=5)
 
     # ----- Summary -----
-    summary_button = ttk.Menubutton(menu_bar, text="Summary")
+    summary_button = ttk.Menubutton(menu_bar, text="Paye")
     summary_menu = ttk.Menu(summary_button, tearoff=0)
 
     # These call methods you added in MainApp to lazily create/show the tabs
     summary_menu.add_command(
-        label="Rapport de paye",
-        command=app.show_pay_tab
-    )
-    summary_menu.add_command(
         label="Visualiser les distributions",
         command=app.show_json_viewer_tab
+    )
+    summary_menu.add_separator()
+
+    summary_menu.add_command(
+        label="Rapport de paye",
+        command=app.show_pay_tab
     )
 
     summary_button["menu"] = summary_menu
