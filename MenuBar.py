@@ -176,7 +176,7 @@ def create_menu_bar(root, app):
         command=app.show_pay_tab
     )
     summary_menu.add_command(
-        label="Visualiser les distributions (JSON)",
+        label="Visualiser les distributions",
         command=app.show_json_viewer_tab
     )
 

@@ -65,9 +65,6 @@ class JsonViewerTab:
         self.period_menu.bind("<<ComboboxSelected>>", self.on_period_select)
 
         ttk.Button(header_frame, text="Rafraîchir", command=self.refresh_pay_periods).pack(side=LEFT, padx=5)
-        ttk.Button(header_frame, text="Créer fichier combiné", command=self.on_create_combined_file).pack(
-            side=LEFT, padx=5
-        )
 
         # View toggle (right side)
         view_frame = ttk.Frame(header_frame)
@@ -102,17 +99,34 @@ class JsonViewerTab:
             "<<ListboxSelect>>", lambda e: self.on_file_select(e, source="unconfirmed")
         )
 
+        self.delete_btn = ttk.Button(
+            unconf_frame,
+            text="Supprimer cette distribution",
+            bootstyle=DANGER,
+            command=self.delete_selected_file,
+            state=DISABLED,
+        )
+        self.delete_btn.pack(fill=X, pady=(0, 5))
+
         # Transfer button between lists
         transfer_frame = ttk.Frame(list_frame)
         transfer_frame.pack(side=LEFT, fill=Y, padx=5)
         self.transfer_btn = ttk.Button(
             transfer_frame,
-            text=">>",
+            text="-->",
             command=self.confirm_selected_file,
             state=DISABLED,
             width=3,
         )
-        self.transfer_btn.pack(pady=20)
+        self.transfer_btn.pack(pady=(20, 5))
+        self.transfer_back_btn = ttk.Button(
+            transfer_frame,
+            text="<--",
+            command=self.unconfirm_selected_file,
+            state=DISABLED,
+            width=3,
+        )
+        self.transfer_back_btn.pack()
 
         # Confirmed files
         conf_frame = ttk.Frame(list_frame)
@@ -129,12 +143,21 @@ class JsonViewerTab:
             "<<ListboxSelect>>", lambda e: self.on_file_select(e, source="confirmed")
         )
 
+        ttk.Button(
+            conf_frame,
+            text="Créer fichier combiné",
+            command=self.on_create_combined_file,
+        ).pack(fill=X)
+
         self.file_info_var = StringVar(value="Aucun fichier sélectionné")
-        ttk.Label(list_frame, textvariable=self.file_info_var, bootstyle="secondary").pack(anchor=W, pady=(0,5))
+
+        ttk.Label(
+            self.frame, textvariable=self.file_info_var, bootstyle="secondary"
+        ).pack(anchor=W, padx=10, pady=(5, 5))
 
         # Input summaries shown side by side
         inputs_wrapper = ttk.Frame(self.frame)
-        inputs_wrapper.pack(fill=X, expand=False, padx=10, pady=(10, 5))
+        inputs_wrapper.pack(fill=X, expand=False, padx=10, pady=(0, 5))
 
         input_frame = ttk.LabelFrame(inputs_wrapper, text="Valeurs entrées (Distribution)")
         input_frame.pack(side=LEFT, fill=BOTH, expand=True)
@@ -207,15 +230,6 @@ class JsonViewerTab:
         # Default to Distribution view
         self.show_distribution_view()
 
-        # Action buttons
-        button_frame = ttk.Frame(self.frame)
-        button_frame.pack(pady=10)
-        self.delete_btn = ttk.Button(
-            button_frame, text="Supprimer cette distribution", bootstyle=DANGER,
-            command=self.delete_selected_file, state=DISABLED
-        )
-        self.delete_btn.pack(side=LEFT, padx=5)
-
     # -----------------------
     # View switching
     # -----------------------
@@ -282,6 +296,7 @@ class JsonViewerTab:
         self.current_file_source = None
         self.delete_btn.config(state=DISABLED)
         self.transfer_btn.config(state=DISABLED)
+        self.transfer_back_btn.config(state=DISABLED)
 
         label = (self.pay_period_var.get() or "").strip()
         if not label:
@@ -408,8 +423,10 @@ class JsonViewerTab:
             self.delete_btn.config(state=NORMAL)
             if source == "unconfirmed":
                 self.transfer_btn.config(state=NORMAL)
+                self.transfer_back_btn.config(state=DISABLED)
             else:
                 self.transfer_btn.config(state=DISABLED)
+                self.transfer_back_btn.config(state=NORMAL)
 
         except Exception as e:
             messagebox.showerror("Erreur", f"Impossible d’afficher le JSON chargé:\n{type(e).__name__}: {e}")
@@ -443,6 +460,7 @@ class JsonViewerTab:
                 self.file_info_var.set("Aucun fichier sélectionné")
                 self.clear_treeviews()
                 self.transfer_btn.config(state=DISABLED)
+                self.transfer_back_btn.config(state=DISABLED)
                 self.delete_btn.config(state=DISABLED)
             except Exception as e:
                 messagebox.showerror("Erreur", f"Échec de la suppression:\n{str(e)}")
@@ -470,6 +488,32 @@ class JsonViewerTab:
             self.file_info_var.set("Aucun fichier sélectionné")
             self.clear_treeviews()
             self.transfer_btn.config(state=DISABLED)
+            self.transfer_back_btn.config(state=DISABLED)
+            self.delete_btn.config(state=DISABLED)
+        except Exception as e:
+            messagebox.showerror("Erreur", f"Échec du transfert:\n{e}")
+
+    def unconfirm_selected_file(self):
+        """Move the selected confirmed file back into the unconfirmed folder."""
+        if not self.current_file_path or self.current_file_source != "confirmed":
+            messagebox.showwarning(
+                "Sélection requise",
+                "Veuillez sélectionner un fichier confirmé à retourner.",
+            )
+            return
+
+        dest = os.path.join(self.unconfirmed_dir, os.path.basename(self.current_file_path))
+        try:
+            os.makedirs(self.unconfirmed_dir, exist_ok=True)
+            os.replace(self.current_file_path, dest)
+            messagebox.showinfo("Retourné", "Fichier déplacé vers NON-vérifiés.")
+            self.on_period_select(None)
+            self.current_file_path = None
+            self.current_file_source = None
+            self.file_info_var.set("Aucun fichier sélectionné")
+            self.clear_treeviews()
+            self.transfer_btn.config(state=DISABLED)
+            self.transfer_back_btn.config(state=DISABLED)
             self.delete_btn.config(state=DISABLED)
         except Exception as e:
             messagebox.showerror("Erreur", f"Échec du transfert:\n{e}")
