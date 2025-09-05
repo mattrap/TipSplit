@@ -77,12 +77,12 @@ def _json_daily_period_dir(pay_period_tuple: tuple) -> str:
     """
     NEW STRUCTURE:
       Daily distribution JSONs:
-        {JSON_ROOT}/daily/{pay_period}/...
+        {JSON_ROOT}/daily/{pay_period}/unconfirmed/...
     Where JSON_ROOT = get_backend_dir()
     """
     start, end = pay_period_tuple
     period_folder = f"{start.replace('/', '-')}_au_{end.replace('/', '-')}"
-    target = os.path.join(get_backend_dir(), "daily", period_folder)
+    target = os.path.join(get_backend_dir(), "daily", period_folder, "unconfirmed")
     _ensure_dir(target)
     return target
 
@@ -340,7 +340,7 @@ def json_export(date, shift, pay_period, fields_sanitized, decl_fields_raw, entr
     Create the merged JSON for the distribution & declaration.
     Returns (final_json_path, final_json_basename)
     JSON is saved to the internal backend folder under the NEW structure:
-      {JSON_ROOT}/daily/{pay_period}/{date}-{shift}_distribution.json
+      {JSON_ROOT}/daily/{pay_period}/unconfirmed/{date}-{shift}_distribution.json
     """
     json_dir = _json_daily_period_dir(pay_period)
     base_json_path = os.path.join(json_dir, f"{date}-{shift}_distribution.json")
@@ -838,7 +838,7 @@ PDF DESTINATIONS (user-visible):
 
 JSON DESTINATIONS (internal backend only):
 - Daily distributions:
-    {JSON_ROOT}/daily/{pay_period}/{date}-{shift}_distribution.json
+    {JSON_ROOT}/daily/{pay_period}/unconfirmed/{date}-{shift}_distribution.json
 
 - Combined/employee summary JSONs (created by JsonViewerTab “Créer fichier combiné”):
     {JSON_ROOT}/pay/{pay_period}/{pay_period}.Json

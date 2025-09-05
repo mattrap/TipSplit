@@ -10,7 +10,7 @@
 #
 # Storage model (JSONs are internal only):
 #   JSON_ROOT = AppConfig.get_backend_dir()
-#   - Daily distributions:  {JSON_ROOT}/daily/{pay_period}/*.json
+#   - Daily distributions:  {JSON_ROOT}/daily/{pay_period}/confirmed/*.json
 #   - Pay summaries:        {JSON_ROOT}/pay/{pay_period}/combined.Json   (preferred)
 #   Back-compat fallback (legacy):
 #   - {app}/exports/pay/{pay_period}.Json
