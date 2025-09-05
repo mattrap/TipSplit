@@ -6,7 +6,22 @@ use :func:`scale` to multiply pixel values so that widgets have a
 consistent physical size across displays.
 """
 
+import sys
+
 _ui_scale = 1.0
+
+
+def enable_high_dpi_awareness():
+    """Opt the process into DPI awareness on Windows."""
+    if sys.platform.startswith("win"):
+        try:
+            import ctypes
+            ctypes.windll.shcore.SetProcessDpiAwareness(2)
+        except Exception:
+            try:
+                ctypes.windll.user32.SetProcessDPIAware()
+            except Exception:
+                pass
 
 
 def init_scaling(root):
@@ -55,6 +70,16 @@ def init_scaling(root):
         # existing value to avoid compounding adjustments.
         if abs(current - tk_scale) > 0.01:
             root.tk.call("tk", "scaling", tk_scale)
+
+        # Allow manual override from configuration (0 => auto)
+        try:
+            from AppConfig import get_ui_scale as _get_ui_scale
+            override = float(_get_ui_scale())
+        except Exception:
+            override = 0.0
+        if override and override > 0:
+            _ui_scale = override
+            root.tk.call("tk", "scaling", max(0.1, _ui_scale * (96.0 / 72.0)))
     except Exception:
         _ui_scale = 1.0
     return _ui_scale
