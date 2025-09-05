@@ -152,7 +152,7 @@ class JsonViewerTab:
         self.file_info_var = StringVar(value="Aucun fichier sélectionné")
 
         ttk.Label(
-            self.frame, textvariable=self.file_info_var, bootstyle="secondary"
+            self.frame, textvariable=self.file_info_var, bootstyle="info"
         ).pack(anchor=W, padx=10, pady=(5, 5))
 
         # Input summaries shown side by side
@@ -357,7 +357,7 @@ class JsonViewerTab:
         try:
             mtime = os.path.getmtime(self.current_file_path)
             ts = _dt.datetime.fromtimestamp(mtime).isoformat(timespec="seconds")
-            self.file_info_var.set(f"Fichier sélectionné: {selected_file} ({ts})")
+            self.file_info_var.set(f"Fichier sélectionné: {selected_file} // Créé le: {ts}")
         except OSError:
             self.file_info_var.set(f"Fichier sélectionné: {selected_file}")
 
