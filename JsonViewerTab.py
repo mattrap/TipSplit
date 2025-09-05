@@ -10,7 +10,8 @@ import glob
 import datetime as _dt
 import ttkbootstrap as ttk
 from tkinter import messagebox
-from tkinter import StringVar, END, Listbox, Text
+from tkinter import StringVar, END, Listbox
+from tkinter.scrolledtext import ScrolledText
 from ttkbootstrap.constants import *
 
 # JSONs (per-day and combined) live in the internal backend
@@ -84,21 +85,31 @@ class JsonViewerTab:
         list_frame.pack(fill=X, padx=10, pady=(2, 0))
         ttk.Label(list_frame, text="Fichiers JSON (backend):").pack(anchor=W)
 
-        self.file_listbox = Listbox(list_frame, height=6)
-        self.file_listbox.pack(fill=X, pady=5)
+        lb_frame = ttk.Frame(list_frame)
+        lb_frame.pack(fill=X, pady=5)
+        self.file_listbox = Listbox(lb_frame, height=6)
+        self.file_listbox.pack(side=LEFT, fill=BOTH, expand=True)
+        lb_scroll = ttk.Scrollbar(lb_frame, orient=VERTICAL, command=self.file_listbox.yview)
+        lb_scroll.pack(side=RIGHT, fill=Y)
+        self.file_listbox.config(yscrollcommand=lb_scroll.set)
         self.file_listbox.bind("<<ListboxSelect>>", self.on_file_select)
 
-        # Inputs (Distribution)
-        input_frame = ttk.LabelFrame(self.frame, text="Valeurs entrées (Distribution)")
-        input_frame.pack(fill=X, expand=False, padx=10, pady=(10, 5))
-        self.inputs_text = Text(input_frame, height=6, wrap="none")
-        self.inputs_text.pack(fill=X, expand=True)
+        self.file_info_var = StringVar(value="Aucun fichier sélectionné")
+        ttk.Label(list_frame, textvariable=self.file_info_var, bootstyle="secondary").pack(anchor=W)
 
-        # Declaration inputs
-        decl_input_frame = ttk.LabelFrame(self.frame, text="Paramètres de déclaration")
-        decl_input_frame.pack(fill=X, expand=False, padx=10, pady=(5, 5))
-        self.decl_inputs_text = Text(decl_input_frame, height=5, wrap="none")
-        self.decl_inputs_text.pack(fill=X, expand=True)
+        # Input summaries shown side by side
+        inputs_wrapper = ttk.Frame(self.frame)
+        inputs_wrapper.pack(fill=X, expand=False, padx=10, pady=(10, 5))
+
+        input_frame = ttk.LabelFrame(inputs_wrapper, text="Valeurs entrées (Distribution)")
+        input_frame.pack(side=LEFT, fill=BOTH, expand=True)
+        self.inputs_text = ScrolledText(input_frame, height=6, wrap="none")
+        self.inputs_text.pack(fill=BOTH, expand=True)
+
+        decl_input_frame = ttk.LabelFrame(inputs_wrapper, text="Paramètres de déclaration")
+        decl_input_frame.pack(side=LEFT, fill=BOTH, expand=True, padx=(10, 0))
+        self.decl_inputs_text = ScrolledText(decl_input_frame, height=6, wrap="none")
+        self.decl_inputs_text.pack(fill=BOTH, expand=True)
 
         # Employees Treeview
         emp_frame = ttk.LabelFrame(self.frame, text="Données des employés")
@@ -121,8 +132,10 @@ class JsonViewerTab:
 
         style = ttk.Style()
         style.configure("Custom.Treeview", rowheight=scale(25))
+        tree_container = ttk.Frame(emp_frame)
+        tree_container.pack(fill=BOTH, expand=True)
         self.tree = ttk.Treeview(
-            emp_frame, columns=columns, show="headings", style="Custom.Treeview"
+            tree_container, columns=columns, show="headings", style="Custom.Treeview"
         )
         headings = {
             "id": "#",
@@ -147,7 +160,13 @@ class JsonViewerTab:
             self._width_map[col] = scaled_width
             self.tree.column(col, anchor=anchor, width=scaled_width, minwidth=scale(20), stretch=True)
 
-        self.tree.pack(fill=BOTH, expand=True)
+        self.tree.pack(side=LEFT, fill=BOTH, expand=True)
+        tree_scroll_y = ttk.Scrollbar(tree_container, orient=VERTICAL, command=self.tree.yview)
+        tree_scroll_y.pack(side=RIGHT, fill=Y)
+        tree_scroll_x = ttk.Scrollbar(emp_frame, orient=HORIZONTAL, command=self.tree.xview)
+        tree_scroll_x.pack(fill=X)
+        self.tree.config(yscrollcommand=tree_scroll_y.set, xscrollcommand=tree_scroll_x.set)
+
         fit_columns(self.tree, self._width_map)
 
         # Default to Distribution view
@@ -156,10 +175,11 @@ class JsonViewerTab:
         # Action buttons
         button_frame = ttk.Frame(self.frame)
         button_frame.pack(pady=10)
-        ttk.Button(
+        self.delete_btn = ttk.Button(
             button_frame, text="Supprimer cette distribution", bootstyle=DANGER,
-            command=self.delete_selected_file
-        ).pack(side=LEFT, padx=5)
+            command=self.delete_selected_file, state=DISABLED
+        )
+        self.delete_btn.pack(side=LEFT, padx=5)
 
     # -----------------------
     # View switching
@@ -220,6 +240,9 @@ class JsonViewerTab:
     def on_period_select(self, event=None):
         self.file_listbox.delete(0, END)
         self.clear_treeviews()
+        self.file_info_var.set("Aucun fichier sélectionné")
+        self.current_file_path = None
+        self.delete_btn.config(state=DISABLED)
 
         label = (self.pay_period_var.get() or "").strip()
         if not label:
@@ -251,6 +274,12 @@ class JsonViewerTab:
             return
 
         self.current_file_path = os.path.join(self.current_period_path, selected_file)
+        try:
+            mtime = os.path.getmtime(self.current_file_path)
+            ts = _dt.datetime.fromtimestamp(mtime).isoformat(timespec="seconds")
+            self.file_info_var.set(f"Fichier sélectionné: {selected_file} ({ts})")
+        except OSError:
+            self.file_info_var.set(f"Fichier sélectionné: {selected_file}")
 
         # Feature 2: defensive JSON load
         try:
@@ -307,6 +336,8 @@ class JsonViewerTab:
             else:
                 self.show_distribution_view()
 
+            self.delete_btn.config(state=NORMAL)
+
         except Exception as e:
             messagebox.showerror("Erreur", f"Impossible d’afficher le JSON chargé:\n{type(e).__name__}: {e}")
 
@@ -335,6 +366,7 @@ class JsonViewerTab:
                 messagebox.showinfo("Supprimé", "Fichier supprimé avec succès.")
                 self.refresh_pay_periods()
                 self.current_file_path = None
+                self.file_info_var.set("Aucun fichier sélectionné")
                 self.clear_treeviews()
             except Exception as e:
                 messagebox.showerror("Erreur", f"Échec de la suppression:\n{str(e)}")
