@@ -420,11 +420,12 @@ class JsonViewerTab:
             else:
                 self.show_distribution_view()
 
-            self.delete_btn.config(state=NORMAL)
             if source == "unconfirmed":
+                self.delete_btn.config(state=NORMAL)
                 self.transfer_btn.config(state=NORMAL)
                 self.transfer_back_btn.config(state=DISABLED)
             else:
+                self.delete_btn.config(state=DISABLED)
                 self.transfer_btn.config(state=DISABLED)
                 self.transfer_back_btn.config(state=NORMAL)
 
@@ -441,8 +442,11 @@ class JsonViewerTab:
     # Delete action
     # -----------------------
     def delete_selected_file(self):
-        if not self.current_file_path:
-            messagebox.showwarning("Aucun fichier sélectionné", "Veuillez d'abord sélectionner une distribution.")
+        if not self.current_file_path or self.current_file_source != "unconfirmed":
+            messagebox.showwarning(
+                "Sélection requise",
+                "Veuillez sélectionner un fichier NON-vérifié à supprimer.",
+            )
             return
 
         file_name = os.path.basename(self.current_file_path)
