@@ -64,7 +64,12 @@ class JsonViewerTab:
         self.period_menu.pack(side=LEFT, padx=5)
         self.period_menu.bind("<<ComboboxSelected>>", self.on_period_select)
 
-        ttk.Button(header_frame, text="Rafraîchir", command=self.refresh_pay_periods).pack(side=LEFT, padx=5)
+        ttk.Button(
+            header_frame,
+            text="Rafraîchir",
+            command=self.refresh_pay_periods,
+            bootstyle=INFO,
+        ).pack(side=LEFT, padx=5)
 
         # View toggle (right side)
         view_frame = ttk.Frame(header_frame)
@@ -117,6 +122,7 @@ class JsonViewerTab:
             command=self.confirm_selected_file,
             state=DISABLED,
             width=3,
+            bootstyle=SUCCESS,
         )
         self.transfer_btn.pack(pady=(20, 5))
         self.transfer_back_btn = ttk.Button(
@@ -125,6 +131,7 @@ class JsonViewerTab:
             command=self.unconfirm_selected_file,
             state=DISABLED,
             width=3,
+            bootstyle=WARNING,
         )
         self.transfer_back_btn.pack()
 
