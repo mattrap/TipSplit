@@ -155,21 +155,21 @@ class DistributionTab:
 
         ttk.Label(
             helper_frame,
-            text="Cash à donner",
+            text="À remettre en Cash",
             font=("Helvetica", 11, "bold"),
             foreground=self.cash_color,
         ).pack(side=LEFT, padx=10)
 
         ttk.Label(
             helper_frame,
-            text="Sur paye",
+            text="Sera reçu sur paye",
             font=("Helvetica", 11, "bold"),
             foreground=self.sur_paye_color,
         ).pack(side=LEFT, padx=10)
 
         ttk.Label(
             helper_frame,
-            text="Dépot sur paye",
+            text="À partir du dépot négatif",
             font=("Helvetica", 11, "bold"),
             foreground=self.depot_color,
         ).pack(side=LEFT, padx=10)
@@ -284,7 +284,7 @@ class DistributionTab:
             admin_frame,
             text="À remettre: 0.00 $",
             font=("Helvetica", 11, "bold"),
-            foreground="#dc3545"
+            foreground=self.grey_color,
         )
         self.service_owes_admin_label.pack(anchor=W, pady=(5, 2))
 
@@ -861,7 +861,7 @@ class DistributionTab:
         self.update_label(self.bussboy_sur_paye_label, net_values["bussboy_sur_paye_distributed"], "Sur Paye",self.sur_paye_color)
         self.update_label(self.bussboy_cash_label, net_values["bussboy_cash_distributed"], "Cash", self.cash_color)
 
-        self.update_label(self.service_owes_admin_label, net_values["service_owes_admin"], "À remettre", self.depot_color)
+        self.update_label(self.service_owes_admin_label, net_values["service_owes_admin"], "À remettre", self.cash_color)
 
         self.update_label(self.service_sur_paye_label, net_values["remaining_depot_for_service"], "Sur Paye",self.sur_paye_color)
         self.update_label(self.service_cash_label, net_values["cash_available_for_service"], "Cash", self.cash_color)
