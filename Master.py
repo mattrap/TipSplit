@@ -80,7 +80,8 @@ class MasterSheet:
     # ---------------------------
     @staticmethod
     def _is_int_column(index: int) -> bool:
-        # columns: number(0), name(1), points(2)
+        # columns: number(0), name(1), points(2), email(3)
+        # keep int validation for number and points
         return index in (0, 2)
 
     @staticmethod
@@ -112,8 +113,14 @@ class MasterSheet:
         table_frame = ttk.Frame(root, padding=(10, 5))
         table_frame.pack(fill=BOTH, expand=True)
 
-        tree = ttk.Treeview(table_frame, columns=("number", "name", "points"), show="headings", bootstyle="primary")
-        for col in ("number", "name", "points"):
+        # Keep order aligned with stored data: number, name, points, email
+        tree = ttk.Treeview(
+            table_frame,
+            columns=("number", "name", "points", "email"),
+            show="headings",
+            bootstyle="primary"
+        )
+        for col in ("number", "name", "points", "email"):
             tree.heading(col, text=col.capitalize(), command=lambda c=col, t=tree: self.sort_column(c, t))
         self._configure_columns(tree)
         tree.pack(side=LEFT, fill=BOTH, expand=True)
@@ -136,12 +143,14 @@ class MasterSheet:
 
     def _configure_columns(self, tree):
         num_w = scale(120)
-        name_w = scale(260)
-        pts_w = scale(120)
-        width_map = {"number": num_w, "name": name_w, "points": pts_w}
+        name_w = scale(240)
+        pts_w = scale(100)
+        email_w = scale(240)
+        width_map = {"number": num_w, "name": name_w, "points": pts_w, "email": email_w}
         tree.column("number", width=num_w, minwidth=scale(20), anchor=CENTER, stretch=True)
         tree.column("name", width=name_w, minwidth=scale(20), anchor=W, stretch=True)
         tree.column("points", width=pts_w, minwidth=scale(20), anchor=CENTER, stretch=True)
+        tree.column("email", width=email_w, minwidth=scale(20), anchor=W, stretch=True)
         fit_columns(tree, width_map)
 
     # ---------------------------
@@ -188,7 +197,8 @@ class MasterSheet:
     def _add_row(self, tree):
         index = len(tree.get_children())
         tag = "evenrow" if index % 2 == 0 else "oddrow"
-        tree.insert("", "end", values=("", "", ""), tags=(tag,))
+        # default empty row matching current columns (number, name, points, email)
+        tree.insert("", "end", values=("", "", "", ""), tags=(tag,))
         self.set_unsaved_changes(True)
 
     def _delete_selected_row(self, tree):
@@ -228,6 +238,10 @@ class MasterSheet:
             return
         x, y, width, height = bbox
         values = list(tree.item(row_id)["values"])
+        # pad to number of columns for safe editing beyond current length (back-compat rows)
+        total_cols = len(tree["columns"]) if isinstance(tree["columns"], (list, tuple)) else len(tuple(tree["columns"]))
+        if len(values) < total_cols:
+            values = values + [""] * (total_cols - len(values))
         original_value = values[column_index] if column_index < len(values) else ""
 
         # Create editor and keep a local handle + closed flag
@@ -245,7 +259,10 @@ class MasterSheet:
             closed = True
 
             # Save new value if requested
-            if save and (new_value is not None) and column_index < len(values):
+            if save and (new_value is not None):
+                # ensure list is long enough (back-compat)
+                if column_index >= len(values):
+                    values.extend([""] * (column_index + 1 - len(values)))
                 if values[column_index] != new_value:
                     values[column_index] = new_value
                     tree.item(row_id, values=values)
