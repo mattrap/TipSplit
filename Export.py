@@ -12,6 +12,7 @@ import sys
 import platform
 from typing import Dict, List
 from AppConfig import get_pdf_dir, get_backend_dir
+import time
 
 # -------------------- Utility --------------------
 def get_unique_filename(base_path):
@@ -85,6 +86,31 @@ def _json_daily_period_dir(pay_period_tuple: tuple) -> str:
     target = os.path.join(get_backend_dir(), "daily", period_folder, "unconfirmed")
     _ensure_dir(target)
     return target
+
+# -------------- Logging helpers --------------
+def _log_dir() -> str:
+    """Ensure and return the backend logs directory."""
+    root = get_backend_dir()
+    path = os.path.join(root, "logs")
+    _ensure_dir(path)
+    return path
+
+def _append_distribution_log(record: dict):
+    """
+    Append a single JSON line capturing a distribution export snapshot.
+    Never raises: failures are swallowed to not block export.
+    """
+    try:
+        log_path = os.path.join(_log_dir(), "distribution_exports.log")
+        # Enrich with a server-side timestamp if not provided
+        record = dict(record or {})
+        record.setdefault("logged_at", time.strftime("%Y-%m-%dT%H:%M:%S"))
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False))
+            f.write("\n")
+    except Exception:
+        # Intentionally ignore logging failures
+        pass
 
 # helper
 def open_file_cross_platform(path):
@@ -806,6 +832,20 @@ def export_distribution_from_tab(distribution_tab):
         json_path, json_filename = json_export(
             date, shift, pay_period, sanitized_inputs, raw_decl_inputs, entries_dist, entries_decl
         )
+
+        # ---- Append an audit log entry (append-only NDJSON) ----
+        _append_distribution_log({
+            "type": "distribution_export",
+            "date": date,
+            "shift": shift,
+            "pay_period": {"start": pay_period[0], "end": pay_period[1]},
+            "json_path": json_path,
+            "json_filename": json_filename,
+            "inputs": raw_inputs,                  # raw text as seen in UI
+            "declaration_inputs": raw_decl_inputs, # raw text as seen in UI
+            "entries_distribution": entries_dist,
+            "entries_declaration": entries_decl,
+        })
 
         # ---- Export PDF, including the JSON filename on each page (into chosen PDF folder under Résumé de shift) ----
         pdf_path = pdf_export(

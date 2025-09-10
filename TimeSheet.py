@@ -11,7 +11,7 @@ from MenuBar import create_menu_bar
 from PunchClock import PunchClockPopup
 from tkinter import END
 
-from debug_log import log_debug
+# Debug logging removed for production cleanliness
 
 # Use the centralized AppConfig helpers so paths work on all machines
 from AppConfig import ensure_employee_data_ready
@@ -244,7 +244,6 @@ class TimeSheet:
             self.tree.item(self.bussboy_total_row, values=("", "Total Bussboy", "", "", "", "", f"{bussboy_total:.2f}"))
 
     def export_filled_rows(self):
-        log_debug("TimeSheet: export_filled_rows invoked")
         try:
             self._end_points_edit(commit=True)
 
@@ -252,10 +251,7 @@ class TimeSheet:
             current_section = None
             date_str = self.date_picker.entry.get().strip()
 
-            log_debug(f"TimeSheet: Starting export for date: {date_str}")
-
             if not date_str:
-                log_debug("TimeSheet: No date selected; aborting export")
                 self.flash_date_field()
                 self.status_label.config(text="⛔ Veuillez choisir une date!", foreground="#B22222")
                 self.fade_out_status_label()
@@ -264,7 +260,6 @@ class TimeSheet:
             try:
                 datetime.strptime(date_str, self.date_format)
             except ValueError:
-                log_debug("TimeSheet: Invalid date format; aborting export")
                 self.flash_date_field()
                 self.status_label.config(text="⛔ Format de date invalide!", foreground="#B22222")
                 self.fade_out_status_label()
@@ -277,7 +272,6 @@ class TimeSheet:
                 if "section" in tags:
                     section_label = values[1].strip("- ").strip()
                     current_section = section_label
-                    log_debug(f"TimeSheet: Found section: {current_section}")
                     continue
 
                 if "editable" not in tags:
@@ -300,17 +294,12 @@ class TimeSheet:
                         "hours": f"{total:.2f}"
                     }
                     export_data.append(entry)
-                    log_debug(f"TimeSheet: Adding entry: {entry}")
 
-            log_debug(f"TimeSheet: Total entries to export: {len(export_data)}")
-            if not export_data:
-                log_debug("TimeSheet: No rows with recorded hours found")
+            # No-op if export_data is empty; UI will still reflect success
 
             self.shared_data.setdefault("transfer", {})
             self.shared_data["transfer"]["date"] = date_str
             self.shared_data["transfer"]["entries"] = export_data
-
-            log_debug(f"TimeSheet: Data stored in shared_data: {self.shared_data['transfer']}")
 
             self.status_label.config(
                 text="✅ Les Heures ont été enregistrées et transférées à l'onglet Distribution",
@@ -319,25 +308,22 @@ class TimeSheet:
 
             if callable(self.reload_distribution_data):
                 try:
-                    log_debug("TimeSheet: Calling reload_distribution_data")
                     self.reload_distribution_data()
-                except Exception as e:
-                    log_debug(f"TimeSheet: reload_distribution_data failed: {e}")
+                except Exception:
+                    pass
             else:
-                log_debug("TimeSheet: reload_distribution_data is None")
+                pass
 
             if "distribution_tab" in self.shared_data:
                 dist_tab = self.shared_data["distribution_tab"]
                 if hasattr(dist_tab, "update_pay_period_display"):
-                    log_debug("TimeSheet: Calling update_pay_period_display")
                     dist_tab.update_pay_period_display()
                 else:
-                    log_debug("TimeSheet: distribution_tab has no update_pay_period_display method")
+                    pass
             else:
-                log_debug("TimeSheet: distribution_tab not found in shared_data")
-        except Exception as e:
-            log_debug(f"TimeSheet: Unexpected error during export_filled_rows: {e}")
-            self.status_label.config(text="⛔ Erreur inattendue - voir TipSplit_debug.log", foreground="#B22222")
+                pass
+        except Exception:
+            self.status_label.config(text="⛔ Erreur inattendue", foreground="#B22222")
             self.fade_out_status_label()
 
     def on_click(self, event):
