@@ -121,7 +121,7 @@ class DistributionTab:
             ttk.Label(self.distrib_group, text=label + ":", font=("Helvetica", 10)).grid(
                 row=i, column=0, sticky=W, pady=5
             )
-            entry = ttk.Entry(self.distrib_group, width=20)
+            entry = self._create_numeric_entry(self.distrib_group)
             entry.grid(row=i, column=1, sticky=W, pady=5)
             self.fields[label] = entry
             entry.bind("<KeyRelease>", lambda e: self.process())
@@ -137,11 +137,30 @@ class DistributionTab:
             ttk.Label(self.declaration_group, text=label + ":", font=("Helvetica", 10)).grid(
                 row=i, column=0, sticky=W, pady=5
             )
-            entry = ttk.Entry(self.declaration_group, width=20)
+            entry = self._create_numeric_entry(self.declaration_group)
             entry.grid(row=i, column=1, sticky=W, pady=5)
             self.declaration_fields[label] = entry
             entry.bind("<KeyRelease>", lambda e: self.process())
             entry.bind("<FocusOut>", lambda e: self.process())
+
+    def _create_numeric_entry(self, parent):
+        """Create a left-aligned entry with restricted input (0-9 . , -)."""
+        vcmd = (self.root.register(self._validate_allowed_chars), "%P")
+        entry = ttk.Entry(parent, width=20, justify=LEFT, validate="key", validatecommand=vcmd)
+        return entry
+
+    def _validate_allowed_chars(self, proposed: str) -> bool:
+        """Allow only digits, dot, comma, and minus. Empty is allowed during typing."""
+        if proposed == "":
+            return True
+        allowed = set("0123456789.,-")
+        ok = all(ch in allowed for ch in proposed)
+        if not ok:
+            try:
+                self.root.bell()
+            except Exception:
+                pass
+        return ok
 
     def create_summary_panels(self, parent):
         self.create_bussboy_summary_panel(parent)
@@ -756,19 +775,12 @@ class DistributionTab:
 
     def load_day_sheet_data(self):
         """Load timesheet data from shared_data with enhanced bundled app support"""
-        print("🔍 Distribution tab: load_day_sheet_data called")
-        
         transfer_data = self.shared_data.get("transfer")
-        print(f"🔍 Transfer data: {transfer_data}")
-        
         if not transfer_data:
-            print("⚠️ No transfer data found.")
             return
 
         entries = transfer_data.get("entries", [])
         selected_date = transfer_data.get("date", "??-??-????")
-        print(f"🔍 Entries: {entries}")
-        print(f"🔍 Selected date: {selected_date}")
         
         self.selected_date_str = selected_date
 
@@ -791,19 +803,14 @@ class DistributionTab:
             entry["is_section"] = False
             organized_data.append(entry)
 
-        print(f"🔍 Organized data: {organized_data}")
-
         # Clear the tree completely
         self.tree.delete(*self.tree.get_children())
-        print("🔍 Tree cleared")
         
         # Update the date label
         self.date_label.config(text=f"Feuille du: {self.selected_date_str}")
-        print(f"🔍 Date label updated: {self.selected_date_str}")
         
         # Update pay period display
         self.update_pay_period_display()
-        print("🔍 Pay period display updated")
 
         # Populate the tree with organized data
         tree_items = []
@@ -813,7 +820,6 @@ class DistributionTab:
                                  values=("", entry["name"], "", "", "", "", "", "", "", "", "", ""),
                                  tags=("section",))
                 tree_items.append(item)
-                print(f"🔍 Added section item: {entry['name']}")
             else:
                 item = self.tree.insert("", "end", values=(
                     entry.get("number", ""),
@@ -830,19 +836,13 @@ class DistributionTab:
                     "",  # F
                 ))
                 tree_items.append(item)
-                print(f"🔍 Added employee item: {entry['name']} - {entry['hours']} hours")
-
-        print(f"🔍 Tree populated with {len(organized_data)} entries")
-        print(f"🔍 Tree items created: {len(tree_items)}")
         
         # Process the data
         try:
             self.process()
-            print("🔍 Data processing completed successfully")
         except Exception as e:
-            print(f"❌ Error during data processing: {e}")
-            import traceback
-            traceback.print_exc()
+            # Silently ignore processing errors to avoid console noise during UI flow
+            pass
 
     def process(self):
         self.update_export_button_state()
@@ -887,4 +887,3 @@ class DistributionTab:
         # 4) Update declaration summary label (already in your code)
         decl = self.declaration_net_values()
         self.ventes_declarees_label.config(text=f"Ventes déclarées: {decl['ventes_declarees']:.2f} $")
-
