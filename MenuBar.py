@@ -182,6 +182,12 @@ def create_menu_bar(root, app):
         label="Rapport de paye",
         command=app.show_pay_tab
     )
+    summary_menu.add_separator()
+    
+    summary_menu.add_command(
+        label="Analyse",
+        command=app.show_analyse_tab
+    )
 
     summary_button["menu"] = summary_menu
     summary_button.pack(side=LEFT, padx=5)
