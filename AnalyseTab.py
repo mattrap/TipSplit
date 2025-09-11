@@ -91,7 +91,7 @@ class AnalyseTab:
         chart_group.pack(fill=BOTH, expand=True)
 
         # UI state
-        self.agg_mode = tk.StringVar(value="day")  # 'day' or 'day_shift'
+        self.agg_mode = tk.StringVar(value="day")  # 'day' or 'day_shift' or 'weekday'
         self.metric_choice = tk.StringVar(value="Ventes Nettes")
 
         # Controls above canvas
@@ -100,6 +100,7 @@ class AnalyseTab:
         ttk.Label(controls, text="Regrouper:").pack(side=LEFT)
         ttk.Radiobutton(controls, text="Par jour", variable=self.agg_mode, value="day", command=self.update_chart).pack(side=LEFT, padx=(6, 0))
         ttk.Radiobutton(controls, text="Par jour + quart (MATIN/SOIR)", variable=self.agg_mode, value="day_shift", command=self.update_chart).pack(side=LEFT, padx=(6, 0))
+        ttk.Radiobutton(controls, text="Par jour de semaine", variable=self.agg_mode, value="weekday", command=self.update_chart).pack(side=LEFT, padx=(6, 0))
         ttk.Label(controls, text="  |  Metric:").pack(side=LEFT, padx=(10, 0))
         self.metric_combo = ttk.Combobox(controls, textvariable=self.metric_choice, width=28, state="readonly",
                                          values=["Ventes Nettes", "Ventes / heure Service", "Tip %"])
@@ -123,6 +124,11 @@ class AnalyseTab:
             "Pourboires (ajustés)",
             "Tip %",
         ]
+        # Summary controls (weekday summary popup)
+        summary_controls = ttk.Frame(summary_group)
+        summary_controls.pack(fill=X, padx=6, pady=(6, 0))
+        ttk.Button(summary_controls, text="Résumé par jour de semaine", command=self._open_weekday_summary_popup).pack(side=LEFT)
+
         self.summary_tree = ttk.Treeview(summary_group, columns=cols, show="headings", height=3)
         for c in cols:
             anchor = tk.W if c == "Scope" else tk.E
@@ -260,6 +266,19 @@ class AnalyseTab:
                     val = self._metric_from_record(rec, metric_key)
                     x_labels.append(dt.strftime("%m-%d"))
                     values.append(val)
+            y_suffix = "%" if metric_key == "tip_pct" else None
+            self._draw_bars(x_labels, values, y_suffix=y_suffix)
+        elif agg_mode == "weekday":
+            # Aggregate per weekday and plot Monday -> Sunday
+            data = self._aggregate_per_weekday(self.current_combined)
+            weekdays_order = [
+                "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"
+            ]
+            x_labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+            values = []
+            for name in weekdays_order:
+                rec = data.get(name, {"ventes_nettes": 0.0, "service_hours": 0.0, "tips_adj": 0.0})
+                values.append(self._metric_from_record(rec, metric_key))
             y_suffix = "%" if metric_key == "tip_pct" else None
             self._draw_bars(x_labels, values, y_suffix=y_suffix)
         else:
@@ -535,6 +554,37 @@ class AnalyseTab:
             rec["tips_adj"] += float(tips or 0.0)
         return out
 
+    def _aggregate_per_weekday(self, combined: dict):
+        """
+        Return dict keyed by weekday_name ("Monday".."Sunday") -> {
+            'ventes_nettes': float,
+            'service_hours': float,
+            'tips_adj': float
+        }
+        where:
+          ventes_per_hr_service = ventes_nettes / max(service_hours, 0.0001)
+          tip_pct = tips_adj / max(ventes_nettes, 0.0001)
+        """
+        from datetime import datetime
+        out = {}
+        for date_iso, _shift, inputs, employees in self._iter_distributions(combined):
+            try:
+                dt = datetime.strptime(date_iso, "%Y-%m-%d")
+                weekday_name = dt.strftime("%A")
+            except Exception:
+                continue
+            ventes = to_float(inputs.get("Ventes Nettes", 0.0))
+            hours = self._collect_service_hours(employees)
+            tips = self._compute_adjusted_tips(inputs)
+            rec = out.get(weekday_name)
+            if not rec:
+                rec = {"ventes_nettes": 0.0, "service_hours": 0.0, "tips_adj": 0.0}
+                out[weekday_name] = rec
+            rec["ventes_nettes"] += float(ventes or 0.0)
+            rec["service_hours"] += float(hours or 0.0)
+            rec["tips_adj"] += float(tips or 0.0)
+        return out
+
     # ----------------------- Summary table -----------------------
     def _update_summary_table(self, combined: dict):
         """
@@ -590,3 +640,57 @@ class AnalyseTab:
         ]
         for r in rows:
             self.summary_tree.insert("", END, values=r)
+
+    # ----------------------- Weekday summary popup -----------------------
+    def _open_weekday_summary_popup(self):
+        if not self.current_combined:
+            return
+        data = self._aggregate_per_weekday(self.current_combined)
+
+        top = tk.Toplevel(self.frame)
+        top.title("Résumé par jour de semaine")
+        try:
+            top.geometry(f"{scale(800)}x{scale(360)}")
+        except Exception:
+            pass
+
+        cols = [
+            "Weekday",
+            "Ventes Nettes",
+            "Heures Service",
+            "Ventes / Heure Service",
+            "Pourboires (ajustés)",
+            "Tip %",
+        ]
+        tree = ttk.Treeview(top, columns=cols, show="headings")
+        for c in cols:
+            anchor = tk.W if c == "Weekday" else tk.E
+            width = 150 if c == "Weekday" else 140
+            tree.heading(c, text=c)
+            tree.column(c, width=scale(width), anchor=anchor, stretch=True)
+        tree.pack(fill=BOTH, expand=True, padx=10, pady=10)
+
+        weekdays_order = [
+            "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"
+        ]
+        for name in weekdays_order:
+            rec = data.get(name)
+            if not rec:
+                continue  # only present weekdays
+            ventes = float(rec.get("ventes_nettes", 0.0) or 0.0)
+            hours = float(rec.get("service_hours", 0.0) or 0.0)
+            tips = float(rec.get("tips_adj", 0.0) or 0.0)
+            per_hr = (ventes / hours) if hours > 0 else 0.0
+            tip_pct = (tips / ventes) if ventes > 0 else 0.0
+            tree.insert("", END, values=[
+                name,
+                f"{ventes:.2f}",
+                f"{hours:.2f}",
+                f"{per_hr:.2f}",
+                f"{tips:.2f}",
+                f"{tip_pct*100:.1f}%",
+            ])
+
+        btns = ttk.Frame(top)
+        btns.pack(fill=X, padx=10, pady=(0, 10))
+        ttk.Button(btns, text="Fermer", command=top.destroy).pack(side=RIGHT)
