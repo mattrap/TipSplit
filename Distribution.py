@@ -144,23 +144,46 @@ class DistributionTab:
             entry.bind("<FocusOut>", lambda e: self.process())
 
     def _create_numeric_entry(self, parent):
-        """Create a left-aligned entry with restricted input (0-9 . , -)."""
-        vcmd = (self.root.register(self._validate_allowed_chars), "%P")
+        """Create a left-aligned entry with restricted input and 2 decimals."""
+        vcmd = (self.root.register(self._validate_numeric_pattern), "%P")
         entry = ttk.Entry(parent, width=20, justify=LEFT, validate="key", validatecommand=vcmd)
         return entry
 
-    def _validate_allowed_chars(self, proposed: str) -> bool:
-        """Allow only digits, dot, comma, and minus. Empty is allowed during typing."""
+    def _validate_numeric_pattern(self, proposed: str) -> bool:
+        """Allow only digits, one leading '-', one decimal ('.' or ','), max 2 decimals."""
         if proposed == "":
             return True
-        allowed = set("0123456789.,-")
-        ok = all(ch in allowed for ch in proposed)
-        if not ok:
-            try:
-                self.root.bell()
-            except Exception:
-                pass
-        return ok
+        # Allowed characters
+        for ch in proposed:
+            if ch not in "0123456789-.,":
+                self._beep_safe()
+                return False
+        # '-' only at the start and at most one
+        if proposed.count("-") > 1 or ("-" in proposed and not proposed.startswith("-")):
+            self._beep_safe()
+            return False
+        # Only one decimal separator total
+        if proposed.count(".") + proposed.count(",") > 1:
+            self._beep_safe()
+            return False
+        # Max two digits after decimal separator
+        sep_index = -1
+        if "." in proposed:
+            sep_index = proposed.index(".")
+        elif "," in proposed:
+            sep_index = proposed.index(",")
+        if sep_index != -1:
+            frac = proposed[sep_index + 1:]
+            if len(frac) > 2:
+                self._beep_safe()
+                return False
+        return True
+
+    def _beep_safe(self):
+        try:
+            self.root.bell()
+        except Exception:
+            pass
 
     def create_summary_panels(self, parent):
         self.create_bussboy_summary_panel(parent)
