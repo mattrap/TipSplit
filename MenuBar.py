@@ -173,7 +173,7 @@ def create_menu_bar(root, app):
 
     # These call methods you added in MainApp to lazily create/show the tabs
     summary_menu.add_command(
-        label="Visualiser les distributions",
+        label="Confirmer les distributions",
         command=app.show_json_viewer_tab
     )
     summary_menu.add_separator()
