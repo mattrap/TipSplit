@@ -479,6 +479,20 @@ class JsonViewerTab:
     # -----------------------
     # Transfer action
     # -----------------------
+    def _unique_dest_path(self, directory: str, filename: str) -> str:
+        """Return a path in `directory` for `filename` that doesn't overwrite existing files.
+
+        If `filename` exists, append " (n)" before the extension, incrementing n
+        until an available name is found.
+        """
+        base, ext = os.path.splitext(filename)
+        candidate = os.path.join(directory, filename)
+        counter = 1
+        while os.path.exists(candidate):
+            candidate = os.path.join(directory, f"{base} ({counter}){ext}")
+            counter += 1
+        return candidate
+
     def confirm_selected_file(self):
         """Move the selected unconfirmed file into the confirmed folder."""
         if not self.current_file_path or self.current_file_source != "unconfirmed":
@@ -488,7 +502,8 @@ class JsonViewerTab:
             )
             return
 
-        dest = os.path.join(self.confirmed_dir, os.path.basename(self.current_file_path))
+        # Compute a destination path that never overwrites existing files
+        dest = self._unique_dest_path(self.confirmed_dir, os.path.basename(self.current_file_path))
         try:
             os.makedirs(self.confirmed_dir, exist_ok=True)
             os.replace(self.current_file_path, dest)
@@ -513,7 +528,8 @@ class JsonViewerTab:
             )
             return
 
-        dest = os.path.join(self.unconfirmed_dir, os.path.basename(self.current_file_path))
+        # Compute a destination path that never overwrites existing files
+        dest = self._unique_dest_path(self.unconfirmed_dir, os.path.basename(self.current_file_path))
         try:
             os.makedirs(self.unconfirmed_dir, exist_ok=True)
             os.replace(self.current_file_path, dest)
