@@ -99,8 +99,8 @@ class AnalyseTab:
         controls.pack(fill=X, padx=6, pady=(6, 0))
         ttk.Label(controls, text="Regrouper:").pack(side=LEFT)
         ttk.Radiobutton(controls, text="Par jour", variable=self.agg_mode, value="day", command=self.update_chart).pack(side=LEFT, padx=(6, 0))
-        ttk.Radiobutton(controls, text="Par jour + quart (MATIN/SOIR)", variable=self.agg_mode, value="day_shift", command=self.update_chart).pack(side=LEFT, padx=(6, 0))
-        ttk.Radiobutton(controls, text="Par jour de semaine", variable=self.agg_mode, value="weekday", command=self.update_chart).pack(side=LEFT, padx=(6, 0))
+        ttk.Radiobutton(controls, text="Par jour de la semaine", variable=self.agg_mode, value="weekday", command=self.update_chart).pack(side=LEFT, padx=(6, 0))
+        ttk.Radiobutton(controls, text="Par shift", variable=self.agg_mode, value="day_shift", command=self.update_chart).pack(side=LEFT, padx=(6, 0))
         ttk.Label(controls, text="  |  Metric:").pack(side=LEFT, padx=(10, 0))
         self.metric_combo = ttk.Combobox(controls, textvariable=self.metric_choice, width=28, state="readonly",
                                          values=["Ventes Nettes", "Ventes / heure Service", "Tip %"])
