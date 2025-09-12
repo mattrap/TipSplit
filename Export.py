@@ -853,6 +853,13 @@ def export_distribution_from_tab(distribution_tab):
             distribution_tab, raw_decl_inputs, json_filename
         )
 
+        # Mark export success for progress UI (menu bar)
+        try:
+            distribution_tab.shared_data["last_export_token"] = time.time()
+            distribution_tab.shared_data["last_export_path"] = pdf_path
+        except Exception:
+            pass
+
         messagebox.showinfo(
             "Exporté",
             f"PDF généré avec succès:\n{os.path.basename(pdf_path)}"

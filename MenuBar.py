@@ -16,6 +16,171 @@ from AppConfig import (
 
 from updater import check_for_update
 from version import APP_NAME, APP_VERSION
+from datetime import datetime
+
+
+class ManagerProgress:
+    """
+    Small progress indicator shown in the menu bar that reflects the
+    manager workflow and shows the next step to complete. Steps:
+      1) Enter date (Time Sheet)
+      2) Enter hours (Time Sheet)
+      3) Confirmer! (Time Sheet)
+      4) sélectionnez un shift (Matin ou Soir)
+      5) Enter distribution and Déclaration values (Distribution)
+      6) Exporter! (Export clicked)
+    """
+
+    STEPS = [
+        "Entrer la date (Time Sheet)",
+        "Entrer les heures (Time Sheet)",
+        "Confirmer!",
+        "Sélectionner un shift (Matin ou Soir)",
+        "Entrez les valeures de Distribution et Déclaration (Distribution)",
+        "Exporter!",
+    ]
+
+    def __init__(self, parent, app):
+        self.app = app
+        self.frame = ttk.Frame(parent)
+        self.frame.pack(side=LEFT, padx=10)
+
+        # Label showing next step text
+        self.next_label = ttk.Label(self.frame, text="", font=("Helvetica", 10))
+        self.next_label.pack(side=TOP, anchor=W)
+
+        # Green progress bar
+        self.pb = ttk.Progressbar(
+            self.frame,
+            orient=HORIZONTAL,
+            length=260,
+            mode="determinate",
+            bootstyle="success-striped",
+            maximum=len(self.STEPS)
+        )
+        self.pb.pack(side=TOP, fill=X, expand=False)
+
+        # Internal state
+        self._last_export_token = None
+
+        # Start periodic updates
+        self._tick()
+
+    # ---- State inspection helpers ----
+    def _date_entered(self):
+        try:
+            ts = getattr(self.app, "timesheet_tab", None)
+            if not ts:
+                return False
+            s = ts.date_picker.entry.get().strip()
+            if not s:
+                return False
+            datetime.strptime(s, "%d-%m-%Y")
+            return True
+        except Exception:
+            return False
+
+    def _hours_entered(self):
+        # Consider hours entered if any row has total > 0 (do not rely on transfer here)
+        try:
+            # Prefer direct check on the TimeSheet widget state
+            ts = getattr(self.app, "timesheet_tab", None)
+            if ts and getattr(ts, "punch_data", None):
+                for v in ts.punch_data.values():
+                    try:
+                        if float(v.get("total", 0.0)) > 0:
+                            return True
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+        return False
+
+    def _confirmed(self):
+        # True only after the Time Sheet 'Confirmer' button moved data to Distribution
+        try:
+            transfer = self.app.shared_data.get("transfer", {})
+            entries = transfer.get("entries", [])
+            date = transfer.get("date", "")
+            return bool(date) and bool(entries)
+        except Exception:
+            return False
+
+    def _dist_decl_values_entered(self):
+        try:
+            dist = self.app.shared_data.get("distribution_tab")
+            if dist and hasattr(dist, "inputs_valid"):
+                return bool(dist.inputs_valid())
+        except Exception:
+            pass
+        return False
+
+    def _distribuer_selected(self):
+        try:
+            dist = self.app.shared_data.get("distribution_tab")
+            if dist and hasattr(dist, "shift_var"):
+                return bool(dist.shift_var.get())
+        except Exception:
+            pass
+        return False
+
+    def _export_done_token(self):
+        try:
+            return self.app.shared_data.get("last_export_token")
+        except Exception:
+            return None
+
+    # ---- Compute current progress ----
+    def _compute(self):
+        completed = 0
+        checklist = [
+            self._date_entered(),
+            self._hours_entered(),
+            self._confirmed(),
+            self._distribuer_selected(),
+            self._dist_decl_values_entered(),
+        ]
+        for done in checklist:
+            if done:
+                completed += 1
+            else:
+                break
+
+        if completed >= len(self.STEPS):
+            next_text = "Terminé"
+        else:
+            next_text = f"Prochaine étape: {self.STEPS[completed]}"
+
+        export_token = self._export_done_token()
+        # If export token present and we already satisfied first 5 steps, mark full
+        fully_done = completed >= 5 and export_token is not None
+        value = len(self.STEPS) if fully_done else completed
+        return value, next_text, export_token, fully_done
+
+    # ---- UI updates ----
+    def _apply(self, value, next_text):
+        try:
+            self.pb.configure(value=value)
+            self.next_label.configure(text=next_text)
+        except Exception:
+            pass
+
+    def _tick(self):
+        value, next_text, export_token, fully_done = self._compute()
+
+        if fully_done:
+            # Lock bar filled and show final message
+            try:
+                self.pb.configure(mode="determinate", value=len(self.STEPS))
+                self.next_label.configure(text="🎉 Distribution terminéee! 🎉")
+            except Exception:
+                pass
+            self._last_export_token = export_token
+        else:
+            self._apply(value, next_text)
+
+        # Schedule next update
+        self.frame.after(700, self._tick)
 
 
 def _open_path_cross_platform(path: str):
@@ -191,6 +356,13 @@ def create_menu_bar(root, app):
 
     summary_button["menu"] = summary_menu
     summary_button.pack(side=LEFT, padx=5)
+
+    # Progress bar: manager workflow
+    try:
+        app.manager_progress = ManagerProgress(menu_bar, app)
+    except Exception:
+        # Never block the UI if progress widget fails
+        pass
 
     # Spacer to push help/clock to the right
     ttk.Label(menu_bar).pack(side=LEFT, expand=True)
