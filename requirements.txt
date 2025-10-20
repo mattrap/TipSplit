@@ -3,3 +3,5 @@ pillow==10.4.0
 PyPDF2==3.0.1
 reportlab==4.4.2
 ttkbootstrap==1.13.11
+requests==2.32.3
+bcrypt==4.1.2

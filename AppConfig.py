@@ -9,6 +9,7 @@ import platform
 import tempfile
 import shutil
 import time
+import base64
 from typing import Dict, Any, Tuple
 from icon_helper import set_app_icon
 
@@ -24,7 +25,7 @@ APP_NAME = "TipSplit"
 CONFIG_FILENAME = "config.json"
 
 # Increment when you change the schema; migrate in _migrate_config()
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 DEFAULTS: Dict[str, Any] = {
     "exports_pdf_dir": "",        # ask the user on first run
@@ -35,7 +36,15 @@ DEFAULTS: Dict[str, Any] = {
     "update_channel": "stable",   # stable / beta (if you add channels later)
     "auto_check_updates": True,
     "ui_scale": 0.0,
+    # Authentication / Supabase defaults
+    "supabase_url": "",
+    "supabase_key_obf": "",
+    "auth_cache_path": "",
+    "last_auth_sync": "",
+    "remember_login_email": "",
 }
+
+_OBFUSCATION_SECRET = f"{APP_NAME}-auth-key"
 
 # ----------------------------
 # Portable mode detection
@@ -77,6 +86,34 @@ def _resource_base() -> str:
 def _resource_path(relative_path: str) -> str:
     """Resolve a path inside the read-only resources (bundled with the app)."""
     return os.path.join(_resource_base(), relative_path)
+
+def _default_auth_cache_path() -> str:
+    base = _user_data_base()
+    _safe_mkdir(base)
+    return os.path.join(base, "auth_cache.json")
+
+# ----------------------------
+# Lightweight secret obfuscation
+# ----------------------------
+def obfuscate_secret(value: str) -> str:
+    """Lightweight reversible obfuscation for storing secrets in config."""
+    if not value:
+        return ""
+    data = value.encode("utf-8")
+    key = _OBFUSCATION_SECRET.encode("utf-8")
+    xored = bytes(b ^ key[i % len(key)] for i, b in enumerate(data))
+    return base64.b64encode(xored).decode("ascii")
+
+def deobfuscate_secret(token: str) -> str:
+    if not token:
+        return ""
+    try:
+        raw = base64.b64decode(token.encode("ascii"))
+        key = _OBFUSCATION_SECRET.encode("utf-8")
+        data = bytes(b ^ key[i % len(key)] for i, b in enumerate(raw))
+        return data.decode("utf-8")
+    except Exception:
+        return ""
 
 # ----------------------------
 # Paths & filesystem helpers
@@ -164,6 +201,15 @@ def _migrate_config(cfg: Dict[str, Any]) -> Dict[str, Any]:
         cfg.setdefault("ui_scale", DEFAULTS["ui_scale"])
         version = 3
 
+    # -> v4: add Supabase/auth settings
+    if version < 4:
+        cfg.setdefault("supabase_url", DEFAULTS["supabase_url"])
+        cfg.setdefault("supabase_key_obf", DEFAULTS["supabase_key_obf"])
+        cfg.setdefault("auth_cache_path", DEFAULTS["auth_cache_path"])
+        cfg.setdefault("last_auth_sync", DEFAULTS["last_auth_sync"])
+        cfg.setdefault("remember_login_email", DEFAULTS["remember_login_email"])
+        version = 4
+
     cfg["version"] = SCHEMA_VERSION
     return cfg
 
@@ -209,6 +255,15 @@ def load_config() -> Dict[str, Any]:
     # Migrate schema if needed
     cfg = _migrate_config(cfg)
 
+    # Ensure auth cache path is configured
+    auth_cache = cfg.get("auth_cache_path", "")
+    if not auth_cache:
+        auth_cache = _default_auth_cache_path()
+        cfg["auth_cache_path"] = auth_cache
+    cache_dir = os.path.dirname(auth_cache)
+    if cache_dir:
+        _safe_mkdir(cache_dir)
+
     # Persist any fixes
     save_config(cfg)
     return cfg
@@ -223,6 +278,9 @@ def save_config(cfg: Dict[str, Any]):
 def get_backend_dir() -> str:
     return _expand_norm(load_config().get("exports_backend_dir", ""))
 
+def get_user_data_dir() -> str:
+    return _user_data_base()
+
 def set_backend_dir(new_dir: str):
     """
     Allow changing the internal backend folder (where raw JSONs live).
@@ -232,6 +290,42 @@ def set_backend_dir(new_dir: str):
     cfg["exports_backend_dir"] = new_dir
     if new_dir:
         _safe_mkdir(new_dir)
+    save_config(cfg)
+
+def get_auth_cache_path() -> str:
+    cfg = load_config()
+    path = cfg.get("auth_cache_path") or _default_auth_cache_path()
+    cfg["auth_cache_path"] = path
+    save_config(cfg)
+    return _expand_norm(path)
+
+def get_last_auth_sync() -> str:
+    return load_config().get("last_auth_sync", "")
+
+def set_last_auth_sync(value: str):
+    cfg = load_config()
+    cfg["last_auth_sync"] = value
+    save_config(cfg)
+
+def get_supabase_settings() -> Dict[str, str]:
+    cfg = load_config()
+    return {
+        "url": cfg.get("supabase_url", ""),
+        "service_key": deobfuscate_secret(cfg.get("supabase_key_obf", "")),
+    }
+
+def set_supabase_settings(url: str, service_key: str):
+    cfg = load_config()
+    cfg["supabase_url"] = (url or "").strip()
+    cfg["supabase_key_obf"] = obfuscate_secret((service_key or "").strip())
+    save_config(cfg)
+
+def get_remember_login_email() -> str:
+    return load_config().get("remember_login_email", "")
+
+def set_remember_login_email(email: str):
+    cfg = load_config()
+    cfg["remember_login_email"] = email or ""
     save_config(cfg)
 
 def get_employee_files() -> Tuple[str, str]:

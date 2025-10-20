@@ -11,12 +11,19 @@ from AnalyseTab import AnalyseTab
 from tkinter.simpledialog import askstring
 from tkinter import messagebox
 from Pay import PayTab
-from AppConfig import ensure_pdf_dir_selected, ensure_default_employee_files
+from AppConfig import (
+    ensure_pdf_dir_selected,
+    ensure_default_employee_files,
+    get_last_auth_sync,
+    get_supabase_settings,
+    set_supabase_settings,
+)
 from updater import maybe_auto_check
 from version import APP_NAME, APP_VERSION
 from icon_helper import set_app_icon
-from ui_scale import init_scaling
 from ui_scale import init_scaling, enable_high_dpi_awareness
+from auth import AuthManager, SupabaseConfigurationError, SupabaseSyncError
+from login import LoginDialog
 
 
 
@@ -110,12 +117,19 @@ def fit_to_screen(win):
 
 
 class TipSplitApp:
-    def __init__(self, root):
+    def __init__(self, root, auth_manager: AuthManager, login_context: dict):
         # --- Seed backend employee JSONs on first run (never overwrites valid files) ---
         ensure_default_employee_files()
 
         self.root = root
-        self.root.title(f"{APP_NAME} v{APP_VERSION}")
+        self.auth_manager = auth_manager
+        self.login_context = login_context or {}
+        self.current_user = self.login_context.get("user")
+        self.offline_mode = bool(self.login_context.get("offline"))
+        self.last_sync = self.login_context.get("last_sync") or self.auth_manager.last_sync or get_last_auth_sync()
+
+        title_suffix = f" - {self.current_user.email}" if self.current_user else ""
+        self.root.title(f"{APP_NAME} v{APP_VERSION}{title_suffix}")
         # Configure DPI-aware scaling so the UI looks consistent across displays
         init_scaling(self.root)
 
@@ -148,6 +162,14 @@ class TipSplitApp:
 
         # Gentle delayed update check
         self.root.after(2000, lambda: maybe_auto_check(self.root))
+
+        # Notify user if offline and schedule periodic background syncs
+        if self.offline_mode:
+            messagebox.showwarning(
+                "Mode hors ligne",
+                "Connexion à Supabase impossible. Utilisation de la dernière liste d’utilisateurs synchronisée.",
+            )
+        self._schedule_periodic_sync()
 
     def _initialize_shared_data(self):
         """Initialize shared data structure with validation and error handling"""
@@ -260,11 +282,7 @@ class TipSplitApp:
         self.notebook.select(self.analyse_frame)
 
     def authenticate_and_show_master(self):
-        password = askstring("🔒 Accès restreint", "Entrez le mot de passe:")
-        if password == "admin123":
-            self.show_master_tab()
-        else:
-            messagebox.showerror("Erreur", "Mot de passe incorrect.")
+        self.show_master_tab()
 
     def show_master_tab(self):
         if str(self.master_frame) not in self.notebook.tabs():
@@ -300,6 +318,105 @@ class TipSplitApp:
         if hasattr(self, "timesheet_tab"):
             self.timesheet_tab.reload()
 
+    # ----- Authentication helpers -----
+    def retry_auth_sync(self):
+        try:
+            count = self.auth_manager.sync()
+        except SupabaseConfigurationError:
+            self.offline_mode = True
+            messagebox.showerror(
+                "Supabase non configuré",
+                "Aucune URL ou service key Supabase n’est définie. Configurez-les avant de synchroniser.",
+            )
+            return
+        except SupabaseSyncError as exc:
+            self.offline_mode = True
+            messagebox.showwarning(
+                "Supabase hors ligne",
+                f"Impossible de synchroniser les accès pour le moment.\n\n{exc}",
+            )
+            return
+
+        self.offline_mode = False
+        self.last_sync = self.auth_manager.last_sync
+        messagebox.showinfo(
+            "Synchronisation Supabase",
+            f"Synchronisation terminée avec succès. ({count} utilisateurs)",
+        )
+
+    def show_auth_sync_info(self):
+        last_sync = self.last_sync or get_last_auth_sync() or "Jamais"
+        status = "hors ligne" if self.offline_mode else "connecté"
+        messagebox.showinfo(
+            "Statut Supabase",
+            f"Dernière synchronisation: {last_sync}\nStatut actuel: {status}",
+        )
+
+    def configure_supabase(self):
+        settings = get_supabase_settings()
+        current_url = settings.get("url", "")
+        new_url = askstring(
+            "Configurer Supabase",
+            "URL du projet Supabase (ex: https://xyz.supabase.co)",
+            initialvalue=current_url,
+            parent=self.root,
+        )
+        if new_url is None:
+            return
+
+        message = (
+            "Service role key Supabase. Laissez vide pour conserver la valeur actuelle."
+        )
+        new_key = askstring(
+            "Service role key",
+            message,
+            parent=self.root,
+            show="•",
+        )
+        if new_key == "" or new_key is None:
+            # Keep existing key if user leaves empty (None indicates cancel → already handled)
+            new_key = settings.get("service_key", "") if new_key == "" else None
+        if new_key is None:
+            return
+
+        set_supabase_settings(new_url, new_key)
+        messagebox.showinfo("Supabase", "Paramètres enregistrés. Une synchronisation va être lancée.")
+        self.retry_auth_sync()
+
+    def get_last_sync_display(self) -> str:
+        return self.last_sync or get_last_auth_sync() or "Jamais"
+
+    def _schedule_periodic_sync(self):
+        self.root.after(15 * 60 * 1000, self._periodic_sync)
+
+    def _periodic_sync(self):
+        previous_state = self.offline_mode
+        try:
+            count = self.auth_manager.sync()
+            self.offline_mode = False
+            self.last_sync = self.auth_manager.last_sync
+            if previous_state:
+                messagebox.showinfo(
+                    "Connexion rétablie",
+                    f"Synchronisation Supabase réussie ({count} utilisateurs).",
+                )
+        except SupabaseConfigurationError:
+            self.offline_mode = True
+            if not previous_state:
+                messagebox.showwarning(
+                    "Supabase non configuré",
+                    "Aucun identifiant Supabase n’est défini. Configurez-les via Réglages.",
+                )
+        except SupabaseSyncError:
+            self.offline_mode = True
+            if not previous_state:
+                messagebox.showwarning(
+                    "Supabase hors ligne",
+                    "Impossible de synchroniser les accès. Dernière liste en cache utilisée.",
+                )
+        finally:
+            self._schedule_periodic_sync()
+
 
 if __name__ == "__main__":
     app_root = ttk.Window(themename="flatly")
@@ -313,12 +430,18 @@ if __name__ == "__main__":
         if splash and splash.winfo_exists():
             splash.destroy()
 
-        # Create the main app
-        app = TipSplitApp(app_root)
+        auth_manager = AuthManager()
+        login_dialog = LoginDialog(app_root, auth_manager)
+        app_root.wait_window(login_dialog.window)
 
-        # Remove splash once window is ready
-        if splash and splash.winfo_exists():
-            splash.destroy()
+        if not login_dialog.result:
+            app_root.destroy()
+            return
+
+        context = login_dialog.result
+
+        # Create the main app
+        app = TipSplitApp(app_root, auth_manager, context)
 
     # Start the app after the splash duration
     app_root.after(2500, start_main_app)

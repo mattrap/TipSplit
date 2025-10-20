@@ -305,6 +305,20 @@ def create_menu_bar(root, app):
         command=lambda: _open_path_cross_platform(get_backend_dir())
     )
 
+    settings_menu.add_separator()
+    settings_menu.add_command(
+        label="Re-synchroniser les accès (Supabase)",
+        command=app.retry_auth_sync,
+    )
+    settings_menu.add_command(
+        label="Statut des accès Supabase…",
+        command=app.show_auth_sync_info,
+    )
+    settings_menu.add_command(
+        label="Configurer Supabase…",
+        command=app.configure_supabase,
+    )
+
     # Optional helper to force-prompt for PDF root on demand
     settings_menu.add_separator()
     settings_menu.add_command(
@@ -378,6 +392,11 @@ def create_menu_bar(root, app):
     help_menu.add_command(
         label="Vérifier les mises à jour…",
         command=lambda: check_for_update(root)
+    )
+    help_menu.add_separator()
+    help_menu.add_command(
+        label="Dernière synchronisation Supabase",
+        command=app.show_auth_sync_info,
     )
     help_button["menu"] = help_menu
     help_button.pack(side=RIGHT, padx=5)
