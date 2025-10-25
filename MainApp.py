@@ -3,6 +3,7 @@ import tkinter as tk
 from PIL import Image, ImageTk  # pillow is in requirements
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
+from ttkbootstrap.style import Style
 from MenuBar import create_menu_bar
 from Master import MasterSheet
 from TimeSheet import TimeSheet
@@ -333,6 +334,9 @@ def main():
     if not login.result:
         controller.stop()
         return
+
+    # Reset bootstrap style singleton before creating a new root window
+    Style.instance = None
 
     app_root = ttk.Window(themename="flatly")
 
