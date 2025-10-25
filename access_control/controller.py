@@ -146,9 +146,15 @@ class AccessController:
     def stop(self) -> None:
         self._stop_event.set()
         thread = self._heartbeat_thread
-        if thread and thread.is_alive():
+        if (
+            thread
+            and thread.is_alive()
+            and thread is not threading.current_thread()
+        ):
             thread.join(timeout=2)
         self._heartbeat_thread = None
+        self._heartbeat_callback = None
+        self._heartbeat_widget = None
 
     # ------------------------------------------------------------------
     # Internal helpers
