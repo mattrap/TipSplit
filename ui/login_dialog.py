@@ -136,7 +136,9 @@ class LoginDialog(ttk.Window):
             try:
                 self._sign_in_callback(email, password)
             except Exception as exc:
-                self.after(0, lambda: self._on_failure(str(exc)))
+                message = str(exc)
+                # Capture message in default arg so Tk callback still has it
+                self.after(0, lambda msg=message: self._on_failure(msg))
             else:
                 self.after(0, lambda: self._on_success(email))
 
@@ -162,4 +164,3 @@ class LoginDialog(ttk.Window):
     def _set_controls_state(self, state: str) -> None:
         for widget in (self.email_entry, self.password_entry, self.sign_in_button):
             widget.configure(state=state)
-
