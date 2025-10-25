@@ -1,6 +1,5 @@
 """CLI for administrators to manage TipSplit access policies."""
 import argparse
-import sys
 import time
 from datetime import datetime, timezone
 
@@ -27,14 +26,13 @@ def build_client() -> Client:
 
 
 def parse_args(argv=None):
-    parser = argparse.ArgumentParser(description="Toggle user/device access policies")
+    parser = argparse.ArgumentParser(description="Toggle user access policies")
     parser.add_argument("--user-id", required=True, help="Supabase auth user UUID")
-    parser.add_argument("--device-id", required=True, help="Device identifier")
     parser.add_argument(
         "--status",
         required=True,
         choices=sorted(VALID_STATUSES),
-        help="Desired status for the device",
+        help="Desired status for the account",
     )
     parser.add_argument(
         "--role",
@@ -55,25 +53,12 @@ def main(argv=None):
 
     payload = {
         "user_id": args.user_id,
-        "device_id": args.device_id,
         "status": args.status,
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
 
     if args.role:
         payload["role"] = args.role
-    else:
-        existing = (
-            client.table("access_policies")
-            .select("role")
-            .eq("user_id", args.user_id)
-            .eq("device_id", args.device_id)
-            .limit(1)
-            .execute()
-        )
-        data = getattr(existing, "data", None) or []
-        if not data:
-            raise SystemExit("Existing policy not found; role is required for new entries.")
 
     if args.bump:
         payload["revocation_version"] = int(time.time())

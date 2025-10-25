@@ -137,8 +137,8 @@ class LoginDialog(ttk.Window):
                 self._sign_in_callback(email, password)
             except Exception as exc:
                 message = str(exc)
-                # Capture message in default arg so Tk callback still has it
-                self.after(0, lambda msg=message: self._on_failure(msg))
+                # Use after's args to avoid referencing cleared exception objects
+                self.after(0, self._on_failure, message)
             else:
                 self.after(0, lambda: self._on_success(email))
 

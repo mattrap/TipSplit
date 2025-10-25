@@ -8,8 +8,6 @@ from dotenv import load_dotenv
 from supabase import Client, create_client
 
 from version import APP_VERSION
-from .device_id import get_device_id
-
 load_dotenv()
 
 
@@ -44,7 +42,6 @@ class AccessController:
             )
 
         self._client: Client = create_client(url, key)
-        self.device_id = get_device_id()
 
         self._session = None
         self._user = None
@@ -175,7 +172,17 @@ class AccessController:
         callback(message)
 
     def _fetch_control_flags(self) -> dict:
-        response = self._client.table("control_flags").select("*").eq("id", 1).execute()
+        try:
+            response = (
+                self._client.table("control_flags")
+                .select("*")
+                .eq("id", 1)
+                .execute()
+            )
+        except Exception as exc:
+            print(f"[AccessController] Control flags unavailable: {exc}")
+            return {}
+
         data = getattr(response, "data", None) or []
         return data[0] if data else {}
 
@@ -193,37 +200,39 @@ class AccessController:
             )
 
     def _fetch_policy(self, user_id: str) -> dict:
-        response = (
-            self._client.table("access_policies")
-            .select("*")
-            .eq("user_id", user_id)
-            .eq("device_id", self.device_id)
-            .limit(1)
-            .execute()
-        )
-        data = getattr(response, "data", None) or []
-        if not data:
-            raise AccessRevoked(
-                "This device is not authorized. Please contact your administrator."
+        try:
+            response = (
+                self._client.table("access_policies")
+                .select("*")
+                .eq("user_id", user_id)
+                .limit(1)
+                .execute()
             )
+            data = getattr(response, "data", None) or []
+        except Exception as exc:
+            print(f"[AccessController] Policy lookup skipped: {exc}")
+            data = []
+
+        if not data:
+            return {"status": "active"}
         return data[0]
 
     def _enforce_policy(self, policy: dict, *, user_id: str, email: str) -> AccessState:
-        status = policy.get("status", "blocked")
+        status = (policy or {}).get("status", "active")
         if status == "blocked":
-            raise AccessRevoked("Access has been blocked for this device.")
+            raise AccessRevoked("Access has been blocked for this account.")
         if status == "expired":
-            raise AccessRevoked("Access has expired for this device.")
+            raise AccessRevoked("Access has expired for this account.")
         if status != "active":
-            raise AccessRevoked("Access is not active for this device.")
+            raise AccessRevoked("Access is not active for this account.")
 
         expires_at = policy.get("expires_at")
         if expires_at:
             expires_dt = _parse_timestamp(expires_at)
             if expires_dt and expires_dt <= datetime.now(timezone.utc):
-                raise AccessRevoked("Access has expired for this device.")
+                raise AccessRevoked("Access has expired for this account.")
 
-        revocation_version = int(policy.get("revocation_version", 0) or 0)
+        revocation_version = int((policy or {}).get("revocation_version", 0) or 0)
         if (
             self._last_revocation_version is not None
             and revocation_version != self._last_revocation_version
@@ -233,7 +242,14 @@ class AccessController:
                 raise AccessRevoked("Access has been updated by administrator.")
         self._last_revocation_version = revocation_version
 
-        role = policy.get("role", "user")
+        role = (policy or {}).get("role")
+        if not role and self._user is not None:
+            user_metadata = _extract_attr(self._user, "user_metadata") or {}
+            role = user_metadata.get("role")
+            if not role:
+                app_metadata = _extract_attr(self._user, "app_metadata") or {}
+                role = app_metadata.get("role")
+        role = role or "user"
         return AccessState(
             user_id=user_id,
             email=email,

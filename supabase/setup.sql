@@ -1,17 +1,13 @@
 -- 1) Main access table
 create table if not exists public.access_policies (
   user_id uuid references auth.users(id) on delete cascade,
-  device_id text not null,
-  status text not null check (status in ('active','blocked','expired')),
-  role text not null check (role in ('admin','manager','user')),
+  status text not null default 'active' check (status in ('active','blocked','expired')),
+  role text not null default 'user' check (role in ('admin','manager','user')),
   expires_at timestamptz,
   revocation_version integer not null default 0,
   updated_at timestamptz not null default now(),
-  primary key (user_id, device_id)
+  primary key (user_id)
 );
-
-create index if not exists idx_access_policies_user_device
-  on public.access_policies (user_id, device_id);
 
 -- 2) Global control flags
 create table if not exists public.control_flags (
