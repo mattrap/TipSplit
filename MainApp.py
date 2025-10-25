@@ -15,8 +15,9 @@ from AppConfig import ensure_pdf_dir_selected, ensure_default_employee_files
 from updater import maybe_auto_check
 from version import APP_NAME, APP_VERSION
 from icon_helper import set_app_icon
-from ui_scale import init_scaling
 from ui_scale import init_scaling, enable_high_dpi_awareness
+from access_control import AccessController, AccessError
+from ui.login_dialog import LoginDialog
 
 
 
@@ -110,11 +111,12 @@ def fit_to_screen(win):
 
 
 class TipSplitApp:
-    def __init__(self, root):
+    def __init__(self, root, user_role: str = "user"):
         # --- Seed backend employee JSONs on first run (never overwrites valid files) ---
         ensure_default_employee_files()
 
         self.root = root
+        self.user_role = user_role or "user"
         self.root.title(f"{APP_NAME} v{APP_VERSION}")
         # Configure DPI-aware scaling so the UI looks consistent across displays
         init_scaling(self.root)
@@ -145,6 +147,15 @@ class TipSplitApp:
         
 
         create_menu_bar(self.root, self)
+
+        self.role_var = tk.StringVar(value=f"Role: {self.user_role}")
+        self.role_label = ttk.Label(
+            self.root,
+            textvariable=self.role_var,
+            anchor="w",
+            bootstyle="secondary",
+        )
+        self.role_label.pack(side=tk.BOTTOM, fill=tk.X)
 
         # Gentle delayed update check
         self.root.after(2000, lambda: maybe_auto_check(self.root))
@@ -301,25 +312,61 @@ class TipSplitApp:
             self.timesheet_tab.reload()
 
 
-if __name__ == "__main__":
+def main():
+    enable_high_dpi_awareness()
+    try:
+        controller = AccessController()
+    except AccessError as exc:
+        temp_root = tk.Tk()
+        temp_root.withdraw()
+        messagebox.showerror("Configuration error", str(exc))
+        temp_root.destroy()
+        return
+
+    login = LoginDialog(
+        sign_in_callback=controller.sign_in,
+        app_name=APP_NAME,
+        themename="flatly",
+        accent="primary",
+    )
+    login.mainloop()
+    if not login.result:
+        controller.stop()
+        return
+
     app_root = ttk.Window(themename="flatly")
 
-    # --- Splash screen before creating the main app ---
     splash_img_path = _resource_path("assets/images/loading.png")
     splash = show_splash(app_root, splash_img_path, duration_ms=2500)
 
+    def on_close():
+        controller.stop()
+        if app_root.winfo_exists():
+            app_root.destroy()
+
+    def handle_revocation(reason: str):
+        if not app_root.winfo_exists():
+            return
+        messagebox.showerror("Access revoked", reason)
+        on_close()
+
     def start_main_app():
-        # Ensure splash is gone
+        if splash and splash.winfo_exists():
+            splash.destroy()
+        app_root._tipsplit_app = TipSplitApp(app_root, user_role=controller.role or "user")
         if splash and splash.winfo_exists():
             splash.destroy()
 
-        # Create the main app
-        app = TipSplitApp(app_root)
-
-        # Remove splash once window is ready
-        if splash and splash.winfo_exists():
-            splash.destroy()
-
-    # Start the app after the splash duration
+    app_root.protocol("WM_DELETE_WINDOW", on_close)
     app_root.after(2500, start_main_app)
-    app_root.mainloop()
+
+    controller.start_heartbeat(handle_revocation, tk_widget=app_root)
+
+    try:
+        app_root.mainloop()
+    finally:
+        controller.stop()
+
+
+if __name__ == "__main__":
+    main()
