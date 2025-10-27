@@ -214,10 +214,16 @@ class LoginDialog(ttk.Window):
         )
         self.status_label.pack(fill=tk.X, pady=(22, 6))
 
-        self.progress = ttk.Progressbar(card, mode="indeterminate", bootstyle=self._accent)
+        footer = ttk.Frame(card, style="Login.Card.TFrame")
+        footer.pack(fill=tk.X, pady=(14, 0))
+        footer.columnconfigure(0, weight=1)
 
-        buttons = ttk.Frame(card, style="Login.Card.TFrame")
-        buttons.pack(fill=tk.X, pady=(14, 0))
+        self.progress = ttk.Progressbar(footer, mode="indeterminate", bootstyle=self._accent)
+        self.progress.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+        self.progress.grid_remove()
+
+        buttons = ttk.Frame(footer, style="Login.Card.TFrame")
+        buttons.grid(row=1, column=0, sticky="e")
 
         self.sign_in_button = ttk.Button(
             buttons,
@@ -238,13 +244,13 @@ class LoginDialog(ttk.Window):
         cancel_button.pack(side=tk.RIGHT)
 
         support = ttk.Label(
-            card,
+            footer,
             text="Having trouble? Contact your administrator.",
             style="Login.Subheading.TLabel",
             anchor="center",
             justify=tk.CENTER,
         )
-        support.pack(fill=tk.X, pady=(20, 0))
+        support.grid(row=2, column=0, sticky="ew", pady=(16, 0))
 
         self._toggle_progress(False)
 
@@ -310,14 +316,14 @@ class LoginDialog(ttk.Window):
     def _toggle_progress(self, show: bool) -> None:
         if show:
             if not self._progress_visible:
-                self.progress.pack(fill=tk.X, pady=(0, 10))
+                self.progress.grid()
                 self.progress.start(10)
                 self._progress_visible = True
         else:
             if self._progress_visible:
                 self.progress.stop()
-                self.progress.pack_forget()
-            self._progress_visible = False
+                self.progress.grid_remove()
+                self._progress_visible = False
 
     def _load_logo(self) -> Optional[ImageTk.PhotoImage]:
         """Load the TipSplit logo if available, returning a PhotoImage or None."""
