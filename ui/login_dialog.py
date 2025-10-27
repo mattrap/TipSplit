@@ -1,8 +1,10 @@
 import tkinter as tk
-from tkinter import messagebox
 import threading
+from pathlib import Path
 from typing import Callable, Optional
 
+from tkinter import messagebox
+from PIL import Image, ImageTk
 import ttkbootstrap as ttk
 
 
@@ -34,6 +36,7 @@ class LoginDialog(ttk.Window):
         self._password_visible = False
         self._progress_visible = False
 
+        self._logo_image = self._load_logo()
         self._set_style()
         self._build_ui(app_name)
         self._sign_in_thread: Optional[threading.Thread] = None
@@ -64,6 +67,7 @@ class LoginDialog(ttk.Window):
         style.configure("Login.Hero.Heading.TLabel", font=("Segoe UI", 18, "bold"), foreground="#ffffff", background=colors.primary)
         style.configure("Login.Hero.Sub.TLabel", font=("Segoe UI", 10), foreground="#dbe7ff", background=colors.primary)
         style.configure("Login.Hero.Badge.TLabel", font=("Segoe UI", 9, "bold"), foreground=colors.primary, background="#ffffff", padding=(10, 3))
+        style.configure("Login.Hero.Image.TLabel", background=colors.primary)
 
         style.configure("Login.TEntry", font=("Segoe UI", 10), padding=(12, 10))
 
@@ -81,20 +85,34 @@ class LoginDialog(ttk.Window):
         hero_inner = ttk.Frame(hero, padding=(30, 36), style="Login.Hero.TFrame")
         hero_inner.pack(fill=tk.BOTH, expand=True)
 
+        hero_header = ttk.Frame(hero_inner, style="Login.Hero.TFrame")
+        hero_header.pack(fill=tk.X)
+
+        hero_text = ttk.Frame(hero_header, style="Login.Hero.TFrame")
+        hero_text.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
         hero_badge = ttk.Label(
-            hero_inner,
+            hero_text,
             text="TipSplit Suite",
             style="Login.Hero.Badge.TLabel",
         )
         hero_badge.pack(anchor=tk.W, pady=(0, 18))
 
         hero_heading = ttk.Label(
-            hero_inner,
+            hero_text,
             text=app_name,
             style="Login.Hero.Heading.TLabel",
             anchor="w",
         )
         hero_heading.pack(anchor=tk.W)
+
+        if self._logo_image:
+            self._hero_logo_label = ttk.Label(
+                hero_header,
+                image=self._logo_image,
+                style="Login.Hero.Image.TLabel",
+            )
+            self._hero_logo_label.pack(side=tk.RIGHT, padx=(16, 0), anchor="n")
 
         hero_copy = ttk.Label(
             hero_inner,
@@ -125,7 +143,7 @@ class LoginDialog(ttk.Window):
         card.grid(row=0, column=0, sticky="nsew")
         card.columnconfigure(0, weight=1)
 
-        badge = ttk.Label(card, text="Welcome back", style="Login.Badge.TLabel", anchor="w")
+        badge = ttk.Label(card, text="Welcome back!", style="Login.Badge.TLabel", anchor="w")
         badge.pack(anchor=tk.W)
 
         heading = ttk.Label(
@@ -138,7 +156,7 @@ class LoginDialog(ttk.Window):
 
         subheading = ttk.Label(
             card,
-            text="Use your TipSplit credentials to access analytics, payroll, and more.",
+            text="Use your TipSplit credentials to access distributions, analytics and payroll.",
             style="Login.Subheading.TLabel",
             anchor="w",
             justify=tk.LEFT,
@@ -299,4 +317,18 @@ class LoginDialog(ttk.Window):
             if self._progress_visible:
                 self.progress.stop()
                 self.progress.pack_forget()
-                self._progress_visible = False
+            self._progress_visible = False
+
+    def _load_logo(self) -> Optional[ImageTk.PhotoImage]:
+        """Load the TipSplit logo if available, returning a PhotoImage or None."""
+        try:
+            base_path = Path(__file__).resolve().parent.parent
+            logo_path = base_path / "assets" / "icons" / "app_icon.png"
+            if logo_path.exists():
+                image = Image.open(logo_path)
+                image = image.convert("RGBA")
+                image.thumbnail((56, 56), Image.LANCZOS)
+                return ImageTk.PhotoImage(image)
+        except Exception:
+            pass
+        return None
