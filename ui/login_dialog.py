@@ -70,6 +70,7 @@ class LoginDialog(ttk.Window):
         style.configure("Login.Hero.Image.TLabel", background=colors.primary)
 
         style.configure("Login.TEntry", font=("Segoe UI", 10), padding=(12, 10))
+        style.configure("Login.Password.TEntry", font=("Segoe UI", 10), padding=(12, 10, 54, 10))
 
     def _build_ui(self, app_name: str) -> None:
         container = ttk.Frame(self, padding=0, style="Login.Surface.TFrame")
@@ -174,28 +175,30 @@ class LoginDialog(ttk.Window):
         self.email_entry = ttk.Entry(form, textvariable=self.email_var, width=42, style="Login.TEntry")
         self.email_entry.grid(row=1, column=0, sticky=tk.EW, pady=(0, 18))
 
-        password_row = ttk.Frame(form, style="Login.Card.TFrame")
-        password_row.grid(row=2, column=0, sticky=tk.EW)
+        password_label = ttk.Label(form, text="Password", style="Login.TLabel")
+        password_label.grid(row=2, column=0, sticky=tk.W, pady=(0, 6))
 
-        password_label = ttk.Label(password_row, text="Password", style="Login.TLabel")
-        password_label.pack(side=tk.LEFT)
-
-        self.password_toggle = ttk.Button(
-            password_row,
-            text="Show",
-            bootstyle="link",
-            command=self._toggle_password,
-        )
-        self.password_toggle.pack(side=tk.RIGHT)
+        password_container = ttk.Frame(form, style="Login.Card.TFrame")
+        password_container.grid(row=3, column=0, sticky=tk.EW, pady=(0, 18))
+        password_container.columnconfigure(0, weight=1)
 
         self.password_entry = ttk.Entry(
-            form,
+            password_container,
             textvariable=self.password_var,
             show="*",
             width=42,
-            style="Login.TEntry",
+            style="Login.Password.TEntry",
         )
-        self.password_entry.grid(row=3, column=0, sticky=tk.EW, pady=(0, 18))
+        self.password_entry.grid(row=0, column=0, sticky=tk.EW)
+
+        self.password_toggle = ttk.Button(
+            password_container,
+            text="Show",
+            bootstyle="link",
+            command=self._toggle_password,
+            padding=(0, 0),
+        )
+        self.password_toggle.place(relx=1.0, rely=0.5, x=-12, anchor="e")
 
         remember = ttk.Checkbutton(
             form,
