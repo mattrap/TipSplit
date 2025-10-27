@@ -339,6 +339,7 @@ def main():
     Style.instance = None
 
     app_root = ttk.Window(themename="flatly")
+    app_root.withdraw()  # hide the main window until the splash and UI are ready
 
     splash_img_path = _resource_path("assets/images/loading.png")
     splash = show_splash(app_root, splash_img_path, duration_ms=2500)
@@ -358,6 +359,7 @@ def main():
         if splash and splash.winfo_exists():
             splash.destroy()
         app_root._tipsplit_app = TipSplitApp(app_root, user_role=controller.role or "user")
+        app_root.deiconify()
         if splash and splash.winfo_exists():
             splash.destroy()
 
