@@ -112,12 +112,14 @@ def fit_to_screen(win):
 
 
 class TipSplitApp:
-    def __init__(self, root, user_role: str = "user"):
+    def __init__(self, root, controller: AccessController, user_role: str = "user"):
         # --- Seed backend employee JSONs on first run (never overwrites valid files) ---
         ensure_default_employee_files()
 
         self.root = root
+        self.controller = controller
         self.user_role = user_role or "user"
+        self.user_email = controller.email or ""
         self.root.title(f"{APP_NAME} v{APP_VERSION}")
         # Configure DPI-aware scaling so the UI looks consistent across displays
         init_scaling(self.root)
@@ -272,11 +274,40 @@ class TipSplitApp:
         self.notebook.select(self.analyse_frame)
 
     def authenticate_and_show_master(self):
-        password = askstring("🔒 Accès restreint", "Entrez le mot de passe:")
-        if password == "admin123":
-            self.show_master_tab()
-        else:
-            messagebox.showerror("Erreur", "Mot de passe incorrect.")
+        if not getattr(self, "controller", None):
+            messagebox.showerror("Erreur", "Contrôleur d'accès indisponible.")
+            return
+
+        email = self.controller.email or self.user_email
+        if not email:
+            messagebox.showerror("Erreur", "Identité de l'utilisateur introuvable.")
+            return
+
+        password = askstring(
+            "🔒 Accès restreint",
+            "Entrez le mot de passe de votre compte :",
+            show="*",
+        )
+        if password is None:
+            return
+        if password == "":
+            messagebox.showerror("Erreur", "Mot de passe requis pour accéder à la feuille maître.")
+            return
+
+        try:
+            state = self.controller.sign_in(email, password)
+        except AccessError as exc:
+            messagebox.showerror("Erreur", str(exc))
+            return
+        except Exception as exc:
+            messagebox.showerror("Erreur", f"Impossible de vérifier votre accès : {exc}")
+            return
+
+        self.user_role = state.role or self.user_role
+        self.user_email = state.email or email
+        if hasattr(self, "role_var"):
+            self.role_var.set(f"Role: {self.user_role}")
+        self.show_master_tab()
 
     def show_master_tab(self):
         if str(self.master_frame) not in self.notebook.tabs():
@@ -358,7 +389,11 @@ def main():
     def start_main_app():
         if splash and splash.winfo_exists():
             splash.destroy()
-        app_root._tipsplit_app = TipSplitApp(app_root, user_role=controller.role or "user")
+        app_root._tipsplit_app = TipSplitApp(
+            app_root,
+            controller,
+            user_role=controller.role or "user"
+        )
         app_root.deiconify()
         if splash and splash.winfo_exists():
             splash.destroy()
