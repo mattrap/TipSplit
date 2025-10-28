@@ -1,11 +1,13 @@
 import tkinter as tk
 import threading
+import webbrowser
 from pathlib import Path
 from typing import Callable, Optional
 
 from tkinter import messagebox
 from PIL import Image, ImageTk
 import ttkbootstrap as ttk
+from icon_helper import set_app_icon
 
 
 class LoginDialog(ttk.Window):
@@ -35,8 +37,10 @@ class LoginDialog(ttk.Window):
         self.status_var = tk.StringVar(value="")
         self._password_visible = False
         self._progress_visible = False
+        self._icon_refs: dict[str, object] = {}
 
         self._logo_image = self._load_logo()
+        set_app_icon(self, self._icon_refs)
         self._set_style()
         self._build_ui(app_name)
         self._sign_in_thread: Optional[threading.Thread] = None
@@ -246,14 +250,39 @@ class LoginDialog(ttk.Window):
         )
         cancel_button.pack(side=tk.RIGHT)
 
-        support = ttk.Label(
-            footer,
-            text="Having trouble? Contact your administrator.",
+        support = ttk.Frame(footer, style="Login.Card.TFrame")
+        support.grid(row=2, column=0, sticky="ew", pady=(16, 0))
+        support.columnconfigure(0, weight=1)
+
+        support_label = ttk.Label(
+            support,
+            text="Need help? Reach out:",
             style="Login.Subheading.TLabel",
             anchor="center",
             justify=tk.CENTER,
         )
-        support.grid(row=2, column=0, sticky="ew", pady=(16, 0))
+        support_label.pack(anchor=tk.CENTER)
+
+        links = ttk.Frame(support, style="Login.Card.TFrame")
+        links.pack(anchor=tk.CENTER, pady=(6, 0))
+
+        website_link = ttk.Button(
+            links,
+            text="tipsplitapp.com",
+            bootstyle="link",
+            command=lambda: webbrowser.open("https://tipsplitapp.com", new=1),
+            padding=0,
+        )
+        website_link.pack(side=tk.LEFT, padx=(0, 12))
+
+        email_link = ttk.Button(
+            links,
+            text="tipsplitapp@gmail.com",
+            bootstyle="link",
+            command=lambda: webbrowser.open("mailto:tipsplitapp@gmail.com"),
+            padding=0,
+        )
+        email_link.pack(side=tk.LEFT)
 
         self._toggle_progress(False)
 
@@ -264,7 +293,7 @@ class LoginDialog(ttk.Window):
         email = self.email_var.get().strip()
         password = self.password_var.get()
         if not email or not password:
-            messagebox.showerror("Missing information", "Please enter email and password.")
+            messagebox.showerror("Missing information", "Please enter email and password.", parent=self)
             return
 
         self._set_controls_state(tk.DISABLED)
@@ -287,7 +316,7 @@ class LoginDialog(ttk.Window):
         self.status_var.set("")
         self._set_controls_state(tk.NORMAL)
         self._toggle_progress(False)
-        messagebox.showerror("Login failed", message)
+        messagebox.showerror("Login failed", self._format_error_message(message), parent=self)
 
     def _on_success(self, email: str) -> None:
         self.result = {
@@ -327,6 +356,20 @@ class LoginDialog(ttk.Window):
                 self.progress.stop()
                 self.progress.grid_remove()
                 self._progress_visible = False
+
+    def _format_error_message(self, message: str) -> str:
+        """Add contextual guidance for common authentication failures."""
+        normalized = message.strip()
+        network_markers = (
+            "nodename nor servname",
+            "name or service not known",
+            "getaddrinfo failed",
+            "temporary failure in name resolution",
+            "timed out",
+        )
+        if any(marker in normalized.lower() for marker in network_markers):
+            return f"{normalized}\n\nPlease check your internet connection and try again."
+        return normalized
 
     def _load_logo(self) -> Optional[ImageTk.PhotoImage]:
         """Load the TipSplit logo if available, returning a PhotoImage or None."""
