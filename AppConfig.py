@@ -23,7 +23,7 @@ except Exception:  # pragma: no cover
 APP_NAME = "TipSplit"
 CONFIG_FILENAME = "config.json"
 
-# Increment when you change the schema. Fresh start for v1.
+# Increment when you change the schema.
 SCHEMA_VERSION = 1
 
 DEFAULT_DISTRIBUTION_SETTINGS: Dict[str, float] = {
