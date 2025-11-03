@@ -236,8 +236,8 @@ def create_menu_bar(root, app):
     except Exception:
         menu_bar.pack(fill=X, side=TOP)
 
-    # ----- Ouvrir -----
-    open_button = ttk.Menubutton(menu_bar, text="Ouvrir")
+    # ----- Admin -----
+    open_button = ttk.Menubutton(menu_bar, text="Admin")
     open_menu = ttk.Menu(open_button, tearoff=0)
     open_menu.add_command(label="Feuille d'employés", command=app.authenticate_and_show_master)
     open_button["menu"] = open_menu

@@ -1,0 +1,386 @@
+import tkinter as tk
+import threading
+import webbrowser
+from pathlib import Path
+from typing import Callable, Optional
+
+from tkinter import messagebox
+from PIL import Image, ImageTk
+import ttkbootstrap as ttk
+from icon_helper import set_app_icon
+
+
+class LoginDialog(ttk.Window):
+    """Reusable themed login dialog for TipSplit and related tools."""
+
+    def __init__(
+        self,
+        *,
+        sign_in_callback: Callable[[str, str], object],
+        app_name: str = "TipSplit",
+        themename: str = "flatly",
+        accent: str = "primary",
+        variant: str = "light",
+        default_email: str = "",
+        remember_default: bool = False,
+    ) -> None:
+        super().__init__(themename=themename)
+        self.title(f"{app_name} Login")
+        self._sign_in_callback = sign_in_callback
+        self._accent = accent
+        self._variant = variant
+        self.result: Optional[dict] = None
+
+        self.email_var = tk.StringVar(value=default_email)
+        self.password_var = tk.StringVar()
+        self.remember_var = tk.BooleanVar(value=remember_default)
+        self.status_var = tk.StringVar(value="")
+        self._password_visible = False
+        self._progress_visible = False
+        self._icon_refs: dict[str, object] = {}
+
+        self._logo_image = self._load_logo()
+        set_app_icon(self, self._icon_refs)
+        self._set_style()
+        self._build_ui(app_name)
+        self._sign_in_thread: Optional[threading.Thread] = None
+
+        self.bind("<Return>", lambda _: self._on_submit())
+        self.protocol("WM_DELETE_WINDOW", self._on_cancel)
+        self.resizable(False, False)
+        self.place_window_center()
+        self.after(0, lambda: self.email_entry.focus_set())
+
+    # ------------------------------------------------------------------
+    def _set_style(self) -> None:
+        style = ttk.Style()
+        colors = style.colors
+
+        style.configure("Login.Surface.TFrame", background=colors.bg)
+        style.configure("Login.CardWrapper.TFrame", background=colors.bg)
+        style.configure("Login.Hero.TFrame", background=colors.primary)
+        style.configure("Login.Card.TFrame", background="#ffffff")
+
+        style.configure("Login.TLabel", font=("Segoe UI", 10), background="#ffffff")
+        style.configure("Login.Heading.TLabel", font=("Segoe UI", 18, "bold"), background="#ffffff")
+        style.configure("Login.Subheading.TLabel", font=("Segoe UI", 10), foreground="#6c757d", background="#ffffff")
+        style.configure("Login.Status.TLabel", font=("Segoe UI", 9), foreground="#6c757d", background="#ffffff")
+        style.configure("Login.Badge.TLabel", font=("Segoe UI", 9, "bold"), foreground=colors.primary, background="#eaf2fb", padding=(10, 3))
+        style.configure("Login.TCheckbutton", font=("Segoe UI", 10), background="#ffffff")
+
+        style.configure("Login.Hero.Heading.TLabel", font=("Segoe UI", 18, "bold"), foreground="#ffffff", background=colors.primary)
+        style.configure("Login.Hero.Sub.TLabel", font=("Segoe UI", 10), foreground="#dbe7ff", background=colors.primary)
+        style.configure("Login.Hero.Badge.TLabel", font=("Segoe UI", 9, "bold"), foreground=colors.primary, background="#ffffff", padding=(10, 3))
+        style.configure("Login.Hero.Image.TLabel", background=colors.primary)
+
+        style.configure("Login.TEntry", font=("Segoe UI", 10), padding=(12, 10))
+        style.configure("Login.Password.TEntry", font=("Segoe UI", 10), padding=(12, 10, 54, 10))
+
+    def _build_ui(self, app_name: str) -> None:
+        container = ttk.Frame(self, padding=0, style="Login.Surface.TFrame")
+        container.pack(fill=tk.BOTH, expand=True)
+        container.columnconfigure(0, weight=0)
+        container.columnconfigure(1, weight=1)
+        container.rowconfigure(0, weight=1)
+
+        hero = ttk.Frame(container, width=240, style="Login.Hero.TFrame")
+        hero.grid(row=0, column=0, sticky="nsew")
+        hero.grid_propagate(False)
+
+        hero_inner = ttk.Frame(hero, padding=(30, 36), style="Login.Hero.TFrame")
+        hero_inner.pack(fill=tk.BOTH, expand=True)
+
+        hero_header = ttk.Frame(hero_inner, style="Login.Hero.TFrame")
+        hero_header.pack(fill=tk.X)
+
+        hero_text = ttk.Frame(hero_header, style="Login.Hero.TFrame")
+        hero_text.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        hero_badge = ttk.Label(
+            hero_text,
+            text="TipSplit Suite",
+            style="Login.Hero.Badge.TLabel",
+        )
+        hero_badge.pack(anchor=tk.W, pady=(0, 18))
+
+        hero_heading = ttk.Label(
+            hero_text,
+            text=app_name,
+            style="Login.Hero.Heading.TLabel",
+            anchor="w",
+        )
+        hero_heading.pack(anchor=tk.W)
+
+        if self._logo_image:
+            self._hero_logo_label = ttk.Label(
+                hero_header,
+                image=self._logo_image,
+                style="Login.Hero.Image.TLabel",
+            )
+            self._hero_logo_label.pack(side=tk.RIGHT, padx=(16, 0), anchor="n")
+
+        hero_copy = ttk.Label(
+            hero_inner,
+            text="Track tips, staffing, and payroll securely with a unified workflow.",
+            style="Login.Hero.Sub.TLabel",
+            anchor="w",
+            justify=tk.LEFT,
+            wraplength=200,
+        )
+        hero_copy.pack(anchor=tk.W, pady=(14, 12))
+
+        hero_highlight = ttk.Label(
+            hero_inner,
+            text="Role-based access • Audit-ready exports\nResponsive support team",
+            style="Login.Hero.Sub.TLabel",
+            anchor="w",
+            justify=tk.LEFT,
+            wraplength=200,
+        )
+        hero_highlight.pack(anchor=tk.W)
+
+        card_wrapper = ttk.Frame(container, padding=(48, 40, 48, 40), style="Login.CardWrapper.TFrame")
+        card_wrapper.grid(row=0, column=1, sticky="nsew")
+        card_wrapper.columnconfigure(0, weight=1)
+        card_wrapper.rowconfigure(0, weight=1)
+
+        card = ttk.Frame(card_wrapper, padding=(34, 36), style="Login.Card.TFrame")
+        card.grid(row=0, column=0, sticky="nsew")
+        card.columnconfigure(0, weight=1)
+
+        badge = ttk.Label(card, text="Welcome back!", style="Login.Badge.TLabel", anchor="w")
+        badge.pack(anchor=tk.W)
+
+        heading = ttk.Label(
+            card,
+            text="Sign in to continue",
+            style="Login.Heading.TLabel",
+            anchor="w",
+        )
+        heading.pack(anchor=tk.W, pady=(16, 6))
+
+        subheading = ttk.Label(
+            card,
+            text="Use your TipSplit credentials to access distributions, analytics and payroll.",
+            style="Login.Subheading.TLabel",
+            anchor="w",
+            justify=tk.LEFT,
+            wraplength=380,
+        )
+        subheading.pack(anchor=tk.W, pady=(0, 22))
+
+        form = ttk.Frame(card, style="Login.Card.TFrame")
+        form.pack(fill=tk.BOTH, expand=True)
+        form.columnconfigure(0, weight=1)
+
+        email_label = ttk.Label(form, text="Email address", style="Login.TLabel")
+        email_label.grid(row=0, column=0, sticky=tk.W, pady=(0, 6))
+
+        self.email_entry = ttk.Entry(form, textvariable=self.email_var, width=42, style="Login.TEntry")
+        self.email_entry.grid(row=1, column=0, sticky=tk.EW, pady=(0, 18))
+
+        password_label = ttk.Label(form, text="Password", style="Login.TLabel")
+        password_label.grid(row=2, column=0, sticky=tk.W, pady=(0, 6))
+
+        password_container = ttk.Frame(form, style="Login.Card.TFrame")
+        password_container.grid(row=3, column=0, sticky=tk.EW, pady=(0, 18))
+        password_container.columnconfigure(0, weight=1)
+
+        self.password_entry = ttk.Entry(
+            password_container,
+            textvariable=self.password_var,
+            show="*",
+            width=42,
+            style="Login.Password.TEntry",
+        )
+        self.password_entry.grid(row=0, column=0, sticky=tk.EW)
+
+        self.password_toggle = ttk.Button(
+            password_container,
+            text="Show",
+            bootstyle="link",
+            command=self._toggle_password,
+            padding=(0, 0),
+        )
+        self.password_toggle.place(relx=1.0, rely=0.5, x=-12, anchor="e")
+
+        remember = ttk.Checkbutton(
+            form,
+            text="Remember me on this device",
+            variable=self.remember_var,
+            style="Login.TCheckbutton",
+            bootstyle="round-toggle",
+        )
+        remember.grid(row=4, column=0, sticky=tk.W)
+
+        self.status_label = ttk.Label(
+            card,
+            textvariable=self.status_var,
+            style="Login.Status.TLabel",
+            anchor="w",
+        )
+        self.status_label.pack(fill=tk.X, pady=(22, 6))
+
+        footer = ttk.Frame(card, style="Login.Card.TFrame")
+        footer.pack(fill=tk.X, pady=(14, 0))
+        footer.columnconfigure(0, weight=1)
+
+        self.progress = ttk.Progressbar(footer, mode="indeterminate", bootstyle=self._accent)
+        self.progress.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+        self.progress.grid_remove()
+
+        buttons = ttk.Frame(footer, style="Login.Card.TFrame")
+        buttons.grid(row=1, column=0, sticky="e")
+
+        self.sign_in_button = ttk.Button(
+            buttons,
+            text="Sign In",
+            bootstyle=f"{self._accent}-solid",
+            command=self._on_submit,
+            width=14,
+        )
+        self.sign_in_button.pack(side=tk.RIGHT, padx=(6, 0))
+
+        cancel_button = ttk.Button(
+            buttons,
+            text="Cancel",
+            bootstyle="secondary-outline",
+            command=self._on_cancel,
+            width=12,
+        )
+        cancel_button.pack(side=tk.RIGHT)
+
+        support = ttk.Frame(footer, style="Login.Card.TFrame")
+        support.grid(row=2, column=0, sticky="ew", pady=(16, 0))
+        support.columnconfigure(0, weight=1)
+
+        support_label = ttk.Label(
+            support,
+            text="Need help? Reach out:",
+            style="Login.Subheading.TLabel",
+            anchor="center",
+            justify=tk.CENTER,
+        )
+        support_label.pack(anchor=tk.CENTER)
+
+        links = ttk.Frame(support, style="Login.Card.TFrame")
+        links.pack(anchor=tk.CENTER, pady=(6, 0))
+
+        website_link = ttk.Button(
+            links,
+            text="tipsplitapp.com",
+            bootstyle="link",
+            command=lambda: webbrowser.open("https://tipsplitapp.com", new=1),
+            padding=0,
+        )
+        website_link.pack(side=tk.LEFT, padx=(0, 12))
+
+        email_link = ttk.Button(
+            links,
+            text="tipsplitapp@gmail.com",
+            bootstyle="link",
+            command=lambda: webbrowser.open("mailto:tipsplitapp@gmail.com"),
+            padding=0,
+        )
+        email_link.pack(side=tk.LEFT)
+
+        self._toggle_progress(False)
+
+    # ------------------------------------------------------------------
+    def _on_submit(self) -> None:
+        if self._sign_in_thread and self._sign_in_thread.is_alive():
+            return
+        email = self.email_var.get().strip()
+        password = self.password_var.get()
+        if not email or not password:
+            messagebox.showerror("Missing information", "Please enter email and password.", parent=self)
+            return
+
+        self._set_controls_state(tk.DISABLED)
+        self.status_var.set("Authenticating…")
+        self._toggle_progress(True)
+
+        def worker():
+            try:
+                self._sign_in_callback(email, password)
+            except Exception as exc:
+                message = str(exc)
+                self.after(0, self._on_failure, message)
+            else:
+                self.after(0, lambda: self._on_success(email))
+
+        self._sign_in_thread = threading.Thread(target=worker, daemon=True)
+        self._sign_in_thread.start()
+
+    def _on_failure(self, message: str) -> None:
+        self.status_var.set("")
+        self._set_controls_state(tk.NORMAL)
+        self._toggle_progress(False)
+        messagebox.showerror("Login failed", self._format_error_message(message), parent=self)
+
+    def _on_success(self, email: str) -> None:
+        self.result = {
+            "email": email,
+            "remember": bool(self.remember_var.get()),
+        }
+        self._toggle_progress(False)
+        self.destroy()
+
+    def _on_cancel(self) -> None:
+        self.result = None
+        self._toggle_progress(False)
+        self.destroy()
+
+    def _set_controls_state(self, state: str) -> None:
+        for widget in (
+            self.email_entry,
+            self.password_entry,
+            self.password_toggle,
+            self.sign_in_button,
+        ):
+            widget.configure(state=state)
+
+    def _toggle_password(self) -> None:
+        self._password_visible = not self._password_visible
+        self.password_entry.configure(show="" if self._password_visible else "*")
+        self.password_toggle.configure(text="Hide" if self._password_visible else "Show")
+
+    def _toggle_progress(self, show: bool) -> None:
+        if show:
+            if not self._progress_visible:
+                self.progress.grid()
+                self.progress.start(10)
+                self._progress_visible = True
+        else:
+            if self._progress_visible:
+                self.progress.stop()
+                self.progress.grid_remove()
+                self._progress_visible = False
+
+    def _format_error_message(self, message: str) -> str:
+        """Add contextual guidance for common authentication failures."""
+        normalized = message.strip()
+        network_markers = (
+            "nodename nor servname",
+            "name or service not known",
+            "getaddrinfo failed",
+            "temporary failure in name resolution",
+            "timed out",
+        )
+        if any(marker in normalized.lower() for marker in network_markers):
+            return f"{normalized}\n\nPlease check your internet connection and try again."
+        return normalized
+
+    def _load_logo(self) -> Optional[ImageTk.PhotoImage]:
+        """Load the TipSplit logo if available, returning a PhotoImage or None."""
+        try:
+            base_path = Path(__file__).resolve().parent.parent
+            logo_path = base_path / "assets" / "icons" / "app_icon.png"
+            if logo_path.exists():
+                image = Image.open(logo_path)
+                image = image.convert("RGBA")
+                image.thumbnail((56, 56), Image.LANCZOS)
+                return ImageTk.PhotoImage(image)
+        except Exception:
+            pass
+        return None
