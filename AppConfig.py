@@ -24,7 +24,14 @@ APP_NAME = "TipSplit"
 CONFIG_FILENAME = "config.json"
 
 # Increment when you change the schema; migrate in _migrate_config()
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 5
+
+DEFAULT_DISTRIBUTION_SETTINGS: Dict[str, float] = {
+    "round_increment": 0.25,
+    "cuisine_percentage": 0.01,
+    "bussboy_percentage": 0.025,
+    "frais_admin_service_ratio": 0.8,
+}
 
 DEFAULTS: Dict[str, Any] = {
     "exports_pdf_dir": "",        # ask the user on first run
@@ -35,6 +42,7 @@ DEFAULTS: Dict[str, Any] = {
     "update_channel": "stable",   # stable / beta (if you add channels later)
     "auto_check_updates": True,
     "ui_scale": 0.0,
+    "distribution_settings": DEFAULT_DISTRIBUTION_SETTINGS.copy(),
 }
 
 # ----------------------------
@@ -163,6 +171,20 @@ def _migrate_config(cfg: Dict[str, Any]) -> Dict[str, Any]:
     if version < 3:
         cfg.setdefault("ui_scale", DEFAULTS["ui_scale"])
         version = 3
+
+    if version < 4:
+        cfg.setdefault("distribution_settings", DEFAULT_DISTRIBUTION_SETTINGS.copy())
+        version = 4
+
+    if version < 5:
+        settings = cfg.get("distribution_settings", DEFAULT_DISTRIBUTION_SETTINGS.copy())
+        if isinstance(settings, dict):
+            settings.pop("declaration_tax_multiplier", None)
+            increment = settings.get("round_increment")
+            if increment not in (0.05, 0.25):
+                settings["round_increment"] = DEFAULT_DISTRIBUTION_SETTINGS["round_increment"]
+            cfg["distribution_settings"] = settings
+        version = 5
 
     cfg["version"] = SCHEMA_VERSION
     return cfg
@@ -401,3 +423,64 @@ def set_ui_scale(scale: float):
     cfg = load_config()
     cfg["ui_scale"] = float(scale)
     save_config(cfg)
+
+# ----------------------------
+# Distribution settings helpers
+# ----------------------------
+def _normalize_distribution_settings(data: Any) -> Dict[str, float]:
+    src = data if isinstance(data, dict) else {}
+    normalized: Dict[str, float] = {}
+    for key, default in DEFAULT_DISTRIBUTION_SETTINGS.items():
+        raw = src.get(key, default)
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            value = default
+        if key == "round_increment" and value not in (0.05, 0.25):
+            value = DEFAULT_DISTRIBUTION_SETTINGS["round_increment"]
+        elif key != "round_increment" and value <= 0:
+            value = default
+        normalized[key] = value
+    return normalized
+
+def get_distribution_settings() -> Dict[str, float]:
+    cfg = load_config()
+    current = cfg.get("distribution_settings", {})
+    normalized = _normalize_distribution_settings(current)
+    if current != normalized:
+        cfg["distribution_settings"] = normalized
+        save_config(cfg)
+    return normalized.copy()
+
+def update_distribution_settings(updates: Dict[str, Any]) -> Dict[str, float]:
+    if not isinstance(updates, dict):
+        return get_distribution_settings()
+    cfg = load_config()
+    settings = _normalize_distribution_settings(cfg.get("distribution_settings", {}))
+    changed = False
+    allowed_rounds = {0.05, 0.25}
+    for key, value in updates.items():
+        if key not in DEFAULT_DISTRIBUTION_SETTINGS:
+            continue
+        try:
+            new_val = float(value)
+        except (TypeError, ValueError):
+            continue
+        if key == "round_increment":
+            if new_val not in allowed_rounds:
+                continue
+        elif new_val <= 0:
+            continue
+        if settings.get(key) != new_val:
+            settings[key] = new_val
+            changed = True
+    if changed:
+        cfg["distribution_settings"] = settings
+        save_config(cfg)
+    return settings.copy()
+
+def reset_distribution_settings() -> Dict[str, float]:
+    cfg = load_config()
+    cfg["distribution_settings"] = DEFAULT_DISTRIBUTION_SETTINGS.copy()
+    save_config(cfg)
+    return cfg["distribution_settings"].copy()
