@@ -1,11 +1,19 @@
 """CLI for administrators to manage TipSplit access policies."""
 import argparse
+import os
+import sys
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 
 from dotenv import load_dotenv
 from supabase import Client, create_client
 
+# Load Supabase credentials from supabase.env first, then default .env for local overrides
+_SUPABASE_ENV_PATH = Path(
+    getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent)
+) / "supabase.env"
+load_dotenv(_SUPABASE_ENV_PATH)
 load_dotenv()
 
 
@@ -14,8 +22,6 @@ VALID_ROLES = {"admin", "manager", "user"}
 
 
 def build_client() -> Client:
-    import os
-
     url = os.getenv("SUPABASE_URL")
     service_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
     if not url or not service_key:

@@ -14,6 +14,7 @@ venv/
 .env
 .env.*
 !.env.example
+!supabase.env
 
 build/
 dist/

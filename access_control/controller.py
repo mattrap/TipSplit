@@ -1,13 +1,21 @@
 import os
+import sys
 import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Callable, Optional
 
 from dotenv import load_dotenv
 from supabase import Client, create_client
 
 from version import APP_VERSION
+
+# Load Supabase credentials from the bundled supabase.env first, then fall back to .env
+_SUPABASE_ENV_PATH = Path(
+    getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent)
+) / "supabase.env"
+load_dotenv(_SUPABASE_ENV_PATH)
 load_dotenv()
 
 
