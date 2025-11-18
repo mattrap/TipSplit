@@ -77,7 +77,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: TipSplit-Setup
-          path: dist/installer/TipSplit-Setup-${{ steps.v.outputs.ver }}.exe
+          if-no-files-found: error
+          path: dist/installer/TipSplit-Setup.exe
 
   release:
     needs: build
@@ -92,6 +93,6 @@ jobs:
       - name: Attach to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: TipSplit-Setup-*.exe
+          files: TipSplit-Setup.exe
           draft: false
           prerelease: false
