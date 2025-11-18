@@ -46,6 +46,9 @@ jobs:
           if (!(Test-Path -LiteralPath "defaults/bussboy_employees.json")) {
             throw "Missing defaults/bussboy_employees.json"
           }
+          if (!(Test-Path -LiteralPath "supabase.env")) {
+            throw "Missing supabase.env (Supabase credentials)"
+          }
           if (!(Test-Path -LiteralPath "assets/icons/app_icon.ico")) {
             throw "Missing assets/icons/app_icon.ico"
           }
@@ -60,6 +63,7 @@ jobs:
           pyinstaller --noconsole --name TipSplit `
             --add-data "defaults;defaults" `
             --add-data "assets;assets" `
+            --add-data "supabase.env;." `
             MainApp.py
 
       - name: Install Inno Setup
