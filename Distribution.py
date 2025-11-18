@@ -1,3 +1,4 @@
+import math
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 from PayPeriods import get_selected_period
@@ -6,6 +7,7 @@ from datetime import datetime
 from ui_scale import scale
 from tree_utils import fit_columns
 from tkinter import messagebox
+from AppConfig import get_distribution_settings
 
 class DistributionTab:
     def __init__(self, root, shared_data):
@@ -14,6 +16,7 @@ class DistributionTab:
             raise ValueError("shared_data must be provided to DistributionTab")
         self.shared_data = shared_data
         self.selected_date_str = ""
+        self._dist_settings = get_distribution_settings()
 
         self.set_theme_colors()
 
@@ -23,6 +26,17 @@ class DistributionTab:
         self.setup_layout(container)
 
         self.update_export_button_state()
+
+    def _refresh_distribution_settings(self):
+        """Reload distribution settings from config."""
+        self._dist_settings = get_distribution_settings()
+        return self._dist_settings
+
+    def _get_dist_setting(self, key: str, default: float) -> float:
+        settings = getattr(self, "_dist_settings", None)
+        if not settings or key not in settings:
+            settings = self._refresh_distribution_settings()
+        return float(settings.get(key, default))
 
     def set_theme_colors(self):
         self.sur_paye_color = "#258dba"
@@ -197,21 +211,21 @@ class DistributionTab:
 
         ttk.Label(
             helper_frame,
-            text="À remettre en Cash",
+            text="Remis comptant",
             font=("Helvetica", 11, "bold"),
             foreground=self.cash_color,
         ).pack(side=LEFT, padx=10)
 
         ttk.Label(
             helper_frame,
-            text="Sera reçu sur paye",
+            text="Reçu sur paye",
             font=("Helvetica", 11, "bold"),
             foreground=self.sur_paye_color,
         ).pack(side=LEFT, padx=10)
 
         ttk.Label(
             helper_frame,
-            text="À partir du dépot négatif",
+            text="À partir du dépot",
             font=("Helvetica", 11, "bold"),
             foreground=self.depot_color,
         ).pack(side=LEFT, padx=10)
@@ -483,12 +497,18 @@ class DistributionTab:
             export_distribution_from_tab(self)
 
     def round_cash_down(self, value):
-        """Rounds down to the nearest 0.25 (for distributing)"""
-        return (int(value * 4)) / 4.0
+        """Rounds down to the configured increment (for distributing)."""
+        increment = self._get_dist_setting("round_increment", 0.25)
+        if increment <= 0:
+            return value
+        return round(math.floor(value / increment) * increment, 2)
 
     def round_cash_up(self, value):
-        """Rounds up to the nearest 0.25 (for amounts owed)."""
-        return ((int(value * 4 + 0.9999)) / 4.0)
+        """Rounds up to the configured increment (for amounts owed)."""
+        increment = self._get_dist_setting("round_increment", 0.25)
+        if increment <= 0:
+            return value
+        return round(math.ceil(value / increment) * increment, 2)
 
     def distribution_net_values(self, bussboy_amount):
         ventes_net, depot_net, frais_admin, cash_initial = self.get_inputs()
@@ -522,7 +542,8 @@ class DistributionTab:
         cash_available_for_service = max(0.0, cash_initial - service_owes_admin - cash_cuisine - bussboy_cash_distributed)
 
         """Frais admin"""
-        frais_admin_service = frais_admin * 0.8
+        service_ratio = self._get_dist_setting("frais_admin_service_ratio", 0.8)
+        frais_admin_service = frais_admin * service_ratio
 
         return {
             "bussboy_sur_paye_distributed": bussboy_sur_paye_distributed,
@@ -537,7 +558,8 @@ class DistributionTab:
 
     def declaration_net_values(self):
         ventes_totales, clients, tips_due, ventes_nourriture = self.get_declaration_inputs()
-        ventes_declarees = (ventes_totales - clients) / 1.14975 if 1.14975 != 0 else 0.0
+        tax_factor = 1.14975
+        ventes_declarees = (ventes_totales - clients) / tax_factor if tax_factor != 0 else 0.0
         return {
             "ventes_declarees": ventes_declarees,
             "tips_due": tips_due,
@@ -546,7 +568,8 @@ class DistributionTab:
 
     def calculate_cuisine_distribution(self, ventes_nourriture, depot_net):
         """Determine how cuisine amount is distributed (cash or depot)."""
-        amount_cuisine = ventes_nourriture * 0.01
+        cuisine_pct = self._get_dist_setting("cuisine_percentage", 0.01)
+        amount_cuisine = ventes_nourriture * cuisine_pct
         if depot_net < 0 and abs(depot_net) >= amount_cuisine:
             return amount_cuisine, "depot"
         return self.round_cash_up(amount_cuisine), "cash"
@@ -572,7 +595,8 @@ class DistributionTab:
                 except (ValueError, TypeError):
                     continue
 
-        bussboy_percentage = 0.025 if bb_count >= 1 else 0.0
+        base_percentage = self._get_dist_setting("bussboy_percentage", 0.025)
+        bussboy_percentage = base_percentage if bb_count >= 1 else 0.0
 
 
         # Calculate amount
@@ -869,6 +893,7 @@ class DistributionTab:
 
     def process(self):
         self.update_export_button_state()
+        self._refresh_distribution_settings()
 
         # Get user-entered inputs
         self.ventes_net, self.depot_net, self.frais_admin, self.cash = self.get_inputs()

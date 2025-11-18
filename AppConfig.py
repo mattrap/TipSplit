@@ -23,19 +23,32 @@ except Exception:  # pragma: no cover
 APP_NAME = "TipSplit"
 CONFIG_FILENAME = "config.json"
 
-# Increment when you change the schema; migrate in _migrate_config()
-SCHEMA_VERSION = 3
+# Increment when you change the schema.
+SCHEMA_VERSION = 1
+
+DEFAULT_DISTRIBUTION_SETTINGS: Dict[str, float] = {
+    "round_increment": 0.25,
+    "cuisine_percentage": 0.01,
+    "bussboy_percentage": 0.025,
+    "frais_admin_service_ratio": 0.8,
+}
 
 DEFAULTS: Dict[str, Any] = {
     "exports_pdf_dir": "",        # ask the user on first run
     "exports_backend_dir": "",    # auto-set under app data
     "version": SCHEMA_VERSION,
 
-    # New since v2 (future-proofing)
+    # Future-ready settings
     "update_channel": "stable",   # stable / beta (if you add channels later)
     "auto_check_updates": True,
     "ui_scale": 0.0,
 }
+
+
+def _default_config() -> Dict[str, Any]:
+    cfg = DEFAULTS.copy()
+    cfg["distribution_settings"] = DEFAULT_DISTRIBUTION_SETTINGS.copy()
+    return cfg
 
 # ----------------------------
 # Portable mode detection
@@ -147,25 +160,51 @@ def _load_json_or_none(path: str):
         return None
 
 # ----------------------------
-# Migration
+# Schema finalization
 # ----------------------------
-def _migrate_config(cfg: Dict[str, Any]) -> Dict[str, Any]:
-    """Mutate cfg to the latest schema. Always return a dict with 'version' == SCHEMA_VERSION."""
-    version = int(cfg.get("version") or 1)
+def _ensure_schema(cfg: Dict[str, Any]) -> bool:
+    """
+    Ensure the config dict matches the v1 schema.
+    Returns True if any mutations were applied.
+    """
+    changed = False
 
-    # -> v2: add update prefs if missing
-    if version < 2:
-        cfg.setdefault("update_channel", DEFAULTS["update_channel"])
-        cfg.setdefault("auto_check_updates", DEFAULTS["auto_check_updates"])
-        version = 2
+    for key, value in DEFAULTS.items():
+        if key not in cfg:
+            cfg[key] = value
+            changed = True
 
-    # -> v3: add UI scale override
-    if version < 3:
-        cfg.setdefault("ui_scale", DEFAULTS["ui_scale"])
-        version = 3
+    pdf_dir = _expand_norm(cfg.get("exports_pdf_dir", ""))
+    if pdf_dir != cfg.get("exports_pdf_dir", ""):
+        cfg["exports_pdf_dir"] = pdf_dir
+        changed = True
 
-    cfg["version"] = SCHEMA_VERSION
-    return cfg
+    backend_dir = _expand_norm(cfg.get("exports_backend_dir", ""))
+    if not backend_dir:
+        backend_dir = os.path.join(_user_data_base(), "backend")
+        cfg["exports_backend_dir"] = backend_dir
+        changed = True
+    elif backend_dir != cfg.get("exports_backend_dir", ""):
+        cfg["exports_backend_dir"] = backend_dir
+        changed = True
+    _safe_mkdir(backend_dir)
+
+    settings = cfg.get("distribution_settings")
+    if not isinstance(settings, dict):
+        settings = DEFAULT_DISTRIBUTION_SETTINGS.copy()
+        cfg["distribution_settings"] = settings
+        changed = True
+
+    normalized = _normalize_distribution_settings(settings)
+    if normalized != cfg["distribution_settings"]:
+        cfg["distribution_settings"] = normalized
+        changed = True
+
+    if cfg.get("version") != SCHEMA_VERSION:
+        cfg["version"] = SCHEMA_VERSION
+        changed = True
+
+    return changed
 
 # ----------------------------
 # Load / Save config
@@ -173,11 +212,8 @@ def _migrate_config(cfg: Dict[str, Any]) -> Dict[str, Any]:
 def load_config() -> Dict[str, Any]:
     path = _config_path()
     if not os.path.exists(path):
-        cfg = DEFAULTS.copy()
-        # Initialize backend dir right away, under user data base
-        backend_dir = os.path.join(_user_data_base(), "backend")
-        _safe_mkdir(backend_dir)
-        cfg["exports_backend_dir"] = backend_dir
+        cfg = _default_config()
+        _ensure_schema(cfg)
         _atomic_write_json(path, cfg)
         return cfg
 
@@ -194,23 +230,14 @@ def load_config() -> Dict[str, Any]:
             shutil.copy2(path, broken)
         except Exception:
             pass
-        cfg = DEFAULTS.copy()
+        cfg = _default_config()
+        _ensure_schema(cfg)
+        save_config(cfg)
+        return cfg
 
-    # Fill defaults
-    for k, v in DEFAULTS.items():
-        cfg.setdefault(k, v)
-
-    # Ensure backend dir exists
-    if not cfg.get("exports_backend_dir"):
-        backend_dir = os.path.join(_user_data_base(), "backend")
-        _safe_mkdir(backend_dir)
-        cfg["exports_backend_dir"] = backend_dir
-
-    # Migrate schema if needed
-    cfg = _migrate_config(cfg)
-
-    # Persist any fixes
-    save_config(cfg)
+    # Persist any fixes if schema enforcement made changes
+    if _ensure_schema(cfg):
+        save_config(cfg)
     return cfg
 
 def save_config(cfg: Dict[str, Any]):
@@ -377,10 +404,8 @@ def open_config_folder():
 
 def reset_to_defaults():
     """Reset config to factory defaults but preserve existing folders on disk."""
-    cfg = DEFAULTS.copy()
-    backend_dir = os.path.join(_user_data_base(), "backend")
-    _safe_mkdir(backend_dir)
-    cfg["exports_backend_dir"] = backend_dir
+    cfg = _default_config()
+    _ensure_schema(cfg)
     save_config(cfg)
 
 def get_auto_check_updates() -> bool:
@@ -401,3 +426,64 @@ def set_ui_scale(scale: float):
     cfg = load_config()
     cfg["ui_scale"] = float(scale)
     save_config(cfg)
+
+# ----------------------------
+# Distribution settings helpers
+# ----------------------------
+def _normalize_distribution_settings(data: Any) -> Dict[str, float]:
+    src = data if isinstance(data, dict) else {}
+    normalized: Dict[str, float] = {}
+    for key, default in DEFAULT_DISTRIBUTION_SETTINGS.items():
+        raw = src.get(key, default)
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            value = default
+        if key == "round_increment" and value not in (0.05, 0.25):
+            value = DEFAULT_DISTRIBUTION_SETTINGS["round_increment"]
+        elif key != "round_increment" and value <= 0:
+            value = default
+        normalized[key] = value
+    return normalized
+
+def get_distribution_settings() -> Dict[str, float]:
+    cfg = load_config()
+    current = cfg.get("distribution_settings", {})
+    normalized = _normalize_distribution_settings(current)
+    if current != normalized:
+        cfg["distribution_settings"] = normalized
+        save_config(cfg)
+    return normalized.copy()
+
+def update_distribution_settings(updates: Dict[str, Any]) -> Dict[str, float]:
+    if not isinstance(updates, dict):
+        return get_distribution_settings()
+    cfg = load_config()
+    settings = _normalize_distribution_settings(cfg.get("distribution_settings", {}))
+    changed = False
+    allowed_rounds = {0.05, 0.25}
+    for key, value in updates.items():
+        if key not in DEFAULT_DISTRIBUTION_SETTINGS:
+            continue
+        try:
+            new_val = float(value)
+        except (TypeError, ValueError):
+            continue
+        if key == "round_increment":
+            if new_val not in allowed_rounds:
+                continue
+        elif new_val <= 0:
+            continue
+        if settings.get(key) != new_val:
+            settings[key] = new_val
+            changed = True
+    if changed:
+        cfg["distribution_settings"] = settings
+        save_config(cfg)
+    return settings.copy()
+
+def reset_distribution_settings() -> Dict[str, float]:
+    cfg = load_config()
+    cfg["distribution_settings"] = DEFAULT_DISTRIBUTION_SETTINGS.copy()
+    save_config(cfg)
+    return cfg["distribution_settings"].copy()
