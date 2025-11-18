@@ -15,9 +15,8 @@ API_LATEST    = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/rele
 API_RELEASES  = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/releases"
 RELEASES_URL  = f"https://github.com/{GITHUB_OWNER}/{GITHUB_REPO}/releases"
 
-# Name matching for the Inno installer asset on GitHub Releases
-# Adjust if your artifact has a different name.
-INSTALLER_NAME_SUBSTR = "TipSplitInstaller"   # e.g. "TipSplitInstaller-1.0.6.exe"
+# Name of the Inno installer asset on GitHub Releases (no version in filename)
+INSTALLER_FILENAME = "TipSplit-Setup.exe"
 
 HTTP_TIMEOUT = 30
 
@@ -68,10 +67,10 @@ def _pick_release(cfg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     else:
         return _http_json(API_LATEST)
 
-def _find_asset_urls(assets: list, substr: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+def _find_asset_urls(assets: list, target_name: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
     """
     Returns (installer_url, installer_name, sha256_url)
-    - installer: first .exe whose name contains substr
+    - installer: exact matching filename
     - sha256: file named "<installer>.sha256" or any *.sha256 that mentions installer name
     """
     installer_url = installer_name = sha_url = None
@@ -80,7 +79,7 @@ def _find_asset_urls(assets: list, substr: str) -> Tuple[Optional[str], Optional
         url  = a.get("browser_download_url")
         if not url:
             continue
-        if name.lower().endswith(".exe") and substr.lower() in name.lower():
+        if name.lower() == target_name.lower():
             installer_url, installer_name = url, name
             break
     if installer_name:
@@ -153,7 +152,7 @@ def check_for_update(parent=None, silent_if_current: bool = False, auto: bool = 
             return
 
         assets = rel.get("assets") or []
-        inst_url, inst_name, sha_url = _find_asset_urls(assets, INSTALLER_NAME_SUBSTR)
+        inst_url, inst_name, sha_url = _find_asset_urls(assets, INSTALLER_FILENAME)
 
         if not inst_url:
             # Couldn’t auto-find the installer; open releases page
