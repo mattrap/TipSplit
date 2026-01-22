@@ -1,3 +1,4 @@
+import logging
 import os, sys
 import tkinter as tk
 from PIL import Image, ImageTk  # pillow is in requirements
@@ -12,13 +13,15 @@ from AnalyseTab import AnalyseTab
 from tkinter.simpledialog import askstring
 from tkinter import messagebox
 from Pay import PayTab
-from AppConfig import ensure_pdf_dir_selected, ensure_default_employee_files
+from AppConfig import ensure_pdf_dir_selected, get_user_data_dir
 from updater import maybe_auto_check
 from version import APP_NAME, APP_VERSION
 from icon_helper import set_app_icon
 from ui_scale import init_scaling, enable_high_dpi_awareness
 from access_control import AccessController, AccessError
 from ui.login_dialog import LoginDialog
+from db.db_manager import init_db, get_db_path
+from db.migrate_from_json import migrate_if_needed
 
 
 
@@ -111,11 +114,47 @@ def fit_to_screen(win):
         win.geometry(f"{sw}x{sh}+0+0")
 
 
+def _configure_logging():
+    log_dir = os.path.join(get_user_data_dir(), "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    log_path = os.path.join(log_dir, "tipsplit.log")
+    if not logging.getLogger().handlers:
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+            handlers=[
+                logging.FileHandler(log_path, encoding="utf-8"),
+                logging.StreamHandler(),
+            ],
+        )
+    logging.info("Journalisation initialisée (%s)", log_path)
+
+
+def _bootstrap_database(root=None) -> bool:
+    try:
+        init_db()
+        migrate_if_needed()
+        logging.info("Base de données prête (%s)", get_db_path())
+        return True
+    except Exception as exc:
+        logging.exception("Échec de l’initialisation de la base de données")
+        if root is None:
+            tmp_root = tk.Tk()
+            tmp_root.withdraw()
+        else:
+            tmp_root = root
+        messagebox.showerror(
+            "Erreur critique",
+            f"Impossible d’initialiser la base de données locale.\n\n{exc}",
+            parent=tmp_root,
+        )
+        if root is None and tmp_root is not None:
+            tmp_root.destroy()
+        return False
+
+
 class TipSplitApp:
     def __init__(self, root, controller: AccessController, user_role: str = "user"):
-        # --- Seed backend employee JSONs on first run (never overwrites valid files) ---
-        ensure_default_employee_files()
-
         self.root = root
         self.controller = controller
         self.user_role = user_role or "user"
@@ -345,7 +384,10 @@ class TipSplitApp:
 
 
 def main():
+    _configure_logging()
     enable_high_dpi_awareness()
+    if not _bootstrap_database():
+        return
     try:
         controller = AccessController()
     except AccessError as exc:

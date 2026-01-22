@@ -42,19 +42,6 @@ Source: "dist\TipSplit\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
 ; Ensure icon asset is available for shortcuts
 Source: "assets\icons\app_icon.ico"; DestDir: "{app}\assets\icons"; Flags: ignoreversion
 
-; Ship read-only defaults alongside the app (single files → no createallsubdirs needed)
-Source: "defaults\service_employees.json"; DestDir: "{app}\defaults"; Flags: ignoreversion
-Source: "defaults\bussboy_employees.json";  DestDir: "{app}\defaults"; Flags: ignoreversion
-
-; Seed the user-writable backend on first install only (single files)
-Source: "defaults\service_employees.json"; DestDir: "{userappdata}\TipSplit\backend"; Flags: onlyifdoesntexist ignoreversion
-Source: "defaults\bussboy_employees.json";  DestDir: "{userappdata}\TipSplit\backend"; Flags: onlyifdoesntexist ignoreversion
-
-[InstallDelete]
-; Clean up legacy misplaced files if they exist
-Type: files; Name: "{app}\service_employees.json"
-Type: files; Name: "{app}\bussboy_employees.json"
-
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\assets\icons\app_icon.ico"
 Name: "{group}\Uninstall {#MyAppName}"; Filename: "{uninstallexe}"

@@ -1,26 +1,23 @@
-# Master.py — uses AppConfig-backed, writable employee files (portable- & installer-safe)
+# Master.py — now backed by the SQLite employees repository
 
-import json
-import os
+import logging
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 from tkinter import messagebox
 from MenuBar import create_menu_bar
 
-from AppConfig import ensure_employee_data_ready, get_employee_files
 from ui_scale import scale
 from tree_utils import fit_columns
+from db import employees_repo
+
+logger = logging.getLogger("tipsplit.master")
 
 
 class MasterSheet:
     def __init__(self, frame, on_save_callback=None, shared_data=None):
-        # Ensure backend files exist and are writable; returns (service_path, bussboy_path)
-        ensure_employee_data_ready()
-        self.service_path, self.bussboy_path = get_employee_files()
-
         self.sort_directions = {}
         self.root = frame
-
+        self.row_meta = {"service": {}, "busboy": {}}
         # --------- Scrollable container ---------
         self.canvas = ttk.Canvas(self.root)
         self.canvas.pack(side=LEFT, fill=BOTH, expand=True)
@@ -70,10 +67,13 @@ class MasterSheet:
         self.bussboy_tree = self.create_table_section(
             self.container, "Bussboy", self.add_bussboy_row, self.delete_bussboy_row
         )
+        self.tree_roles = {
+            self.service_tree: "service",
+            self.bussboy_tree: "bussboy",
+        }
 
         # Initial load
-        self.load_data(self.service_tree, self.service_path, key="service")
-        self.load_data(self.bussboy_tree, self.bussboy_path, key="bussboy")
+        self.reload_from_db()
 
     # ---------------------------
     # Column helpers & validation
@@ -198,7 +198,10 @@ class MasterSheet:
         index = len(tree.get_children())
         tag = "evenrow" if index % 2 == 0 else "oddrow"
         # default empty row matching current columns (number, name, points, email)
-        tree.insert("", "end", values=("", "", "", ""), tags=(tag,))
+        item_id = tree.insert("", "end", values=("", "", "", ""), tags=(tag,))
+        role = self.tree_roles.get(tree)
+        if role:
+            self.row_meta.setdefault(role, {})[item_id] = {"id": None}
         self.set_unsaved_changes(True)
 
     def _delete_selected_row(self, tree):
@@ -210,6 +213,9 @@ class MasterSheet:
         if not confirm:
             return
         tree.delete(selected[0])
+        role = self.tree_roles.get(tree)
+        if role:
+            self.row_meta.get(role, {}).pop(selected[0], None)
         self.set_unsaved_changes(True)
         self.restripe_rows(tree)
 
@@ -342,59 +348,82 @@ class MasterSheet:
                 self.hovered_rows[tree] = {"row": row_id, "base_tag": base}
 
     # ---------------------------
-    # Persistence (AppConfig paths)
+    # Persistence via repository
     # ---------------------------
-    def save_data(self, tree, filename, key):
-        data = [tree.item(item)["values"] for item in tree.get_children()]
-        if self.shared_data is not None:
-            self.shared_data[key] = data
-        try:
-            os.makedirs(os.path.dirname(filename), exist_ok=True)
-            with open(filename, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
-                f.write("\n")
-        except Exception as e:
-            messagebox.showerror("Erreur", f"Impossible de sauvegarder le fichier:\n{filename}\n\n{e}")
+    def reload_from_db(self):
+        self.load_role(self.service_tree, "service", key="service")
+        self.load_role(self.bussboy_tree, "busboy", key="bussboy")
 
-    def load_data(self, tree, filename, key=None):
-        # Clear table
+    def load_role(self, tree, role, key=None):
         tree.delete(*tree.get_children())
+        self.row_meta[role] = {}
 
-        data = []
-        try:
-            if os.path.exists(filename):
-                with open(filename, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    if not isinstance(data, list):
-                        data = []
-        except Exception:
-            # Treat as empty if corrupt; AppConfig seeding should have handled corruption too
-            data = []
-
-        for i, row in enumerate(data):
-            # Insert exactly as in file (no coercion)
+        employees = employees_repo.list_employees(role=role, active_only=True, order_by_points_desc=False)
+        data_snapshot = []
+        for i, emp in enumerate(employees):
+            try:
+                display_points = int(float(emp.get("points", 0)))
+            except (TypeError, ValueError):
+                display_points = 0
+            row = [
+                emp.get("employee_number") or "",
+                emp.get("name") or "",
+                display_points,
+                emp.get("email") or "",
+            ]
             tag = "evenrow" if i % 2 == 0 else "oddrow"
-            tree.insert("", "end", values=row, tags=(tag,))
+            item_id = tree.insert("", "end", values=row, tags=(tag,))
+            self.row_meta[role][item_id] = {"id": emp.get("id")}
+            data_snapshot.append(row)
 
         if key is not None and self.shared_data is not None:
-            self.shared_data[key] = data
+            self.shared_data[key] = data_snapshot
 
-        # Default: sort by points descending on load
         self.sort_directions.setdefault(tree, {})
         self.sort_directions[tree]["points"] = True
         self.sort_column("points", tree)
 
+    def _collect_role_rows(self, tree, role):
+        rows = []
+        metadata = self.row_meta.get(role, {})
+        for item in tree.get_children():
+            values = list(tree.item(item)["values"])
+            while len(values) < 4:
+                values.append("")
+            rows.append(
+                {
+                    "id": metadata.get(item, {}).get("id"),
+                    "number": values[0],
+                    "name": values[1],
+                    "points": values[2],
+                    "email": values[3],
+                }
+            )
+        return rows
+
     def save_all_data(self):
-        self.save_data(self.service_tree, self.service_path, key="service")
-        self.save_data(self.bussboy_tree, self.bussboy_path, key="bussboy")
+        try:
+            service_rows = self._collect_role_rows(self.service_tree, "service")
+            bussboy_rows = self._collect_role_rows(self.bussboy_tree, "busboy")
+            svc_summary = employees_repo.upsert_many("service", service_rows)
+            bus_summary = employees_repo.upsert_many("busboy", bussboy_rows)
+            logger.info("Sauvegarde effectuée (service=%s, bussboy=%s)", svc_summary, bus_summary)
+        except ValueError as exc:
+            messagebox.showerror("Erreur", str(exc))
+            return
+        except Exception as exc:
+            logger.exception("Erreur inattendue lors de la sauvegarde")
+            messagebox.showerror("Erreur", f"Impossible d’enregistrer les employés:\n{exc}")
+            return
+
+        self.reload_from_db()
         self.set_unsaved_changes(False)
         messagebox.showinfo("Sauvegardé!", "Les changements ont été effectués avec succès")
         if self.on_save_callback:
             self.on_save_callback()
 
     def discard_changes(self):
-        self.load_data(self.service_tree, self.service_path, key="service")
-        self.load_data(self.bussboy_tree, self.bussboy_path, key="bussboy")
+        self.reload_from_db()
         self.set_unsaved_changes(False)
 
     def set_unsaved_changes(self, value: bool):
@@ -415,6 +444,11 @@ class MasterSheet:
 
 # Run standalone
 if __name__ == "__main__":
+    from db.db_manager import init_db
+    from db.migrate_from_json import migrate_if_needed
+
+    init_db()
+    migrate_if_needed()
     app_root = ttk.Window(themename="flatly")
     create_menu_bar(app_root)
     MasterSheet(app_root)

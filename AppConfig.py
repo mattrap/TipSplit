@@ -8,8 +8,7 @@ import sys
 import platform
 import tempfile
 import shutil
-import time
-from typing import Dict, Any, Tuple
+from typing import Dict, Any
 from icon_helper import set_app_icon
 
 try:
@@ -111,6 +110,13 @@ def _user_data_base() -> str:
     else:  # linux/others
         return os.path.join(os.path.expanduser("~/.config"), APP_NAME)
 
+
+def get_user_data_dir() -> str:
+    """Expose the user data directory so other modules (DB) can persist safely."""
+    base = _user_data_base()
+    os.makedirs(base, exist_ok=True)
+    return base
+
 def _config_path() -> str:
     base = _user_data_base()
     os.makedirs(base, exist_ok=True)
@@ -139,25 +145,6 @@ def _atomic_write_json(path: str, data):
         except Exception:
             pass
         raise
-
-def _load_json_or_none(path: str):
-    """
-    Try to load JSON file and return the parsed data.
-    Returns None if file is missing or corrupt. If corrupt, the bad file is backed up.
-    """
-    if not os.path.exists(path):
-        return None
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        # backup corrupt file and treat as missing
-        ts = time.strftime("%Y%m%d-%H%M%S")
-        try:
-            os.replace(path, f"{path}.bak-{ts}")
-        except Exception:
-            pass
-        return None
 
 # ----------------------------
 # Schema finalization
@@ -260,68 +247,6 @@ def set_backend_dir(new_dir: str):
     if new_dir:
         _safe_mkdir(new_dir)
     save_config(cfg)
-
-def get_employee_files() -> Tuple[str, str]:
-    """
-    Returns the current (read/write) employee JSON paths in the backend.
-    Always call this rather than hard-coding filenames so it respects set_backend_dir().
-    """
-    backend = get_backend_dir()
-    service_path = os.path.join(backend, "service_employees.json")
-    bussboy_path = os.path.join(backend, "bussboy_employees.json")
-    return service_path, bussboy_path
-
-def ensure_default_employee_files(defaults_subdir: str = "defaults") -> None:
-    """
-    Seed (or self-heal) backend employee files from read-only bundled defaults.
-
-    Behavior:
-      - If backend file is missing or corrupt -> copy from defaults.
-      - If backend file exists and is valid JSON -> leave it alone (never overwrite).
-      - Works in dev and PyInstaller via _resource_path().
-
-    Ship these with your app:
-      defaults/service_employees.json
-      defaults/bussboy_employees.json
-    """
-    backend_dir = get_backend_dir()
-    _safe_mkdir(backend_dir)
-
-    svc_path, bus_path = get_employee_files()
-
-    # Locations of bundled defaults (read-only in the app bundle)
-    default_service_src = _resource_path(os.path.join(defaults_subdir, "service_employees.json"))
-    default_bussboy_src = _resource_path(os.path.join(defaults_subdir, "bussboy_employees.json"))
-
-    # Service
-    if _load_json_or_none(svc_path) is None:
-        if os.path.exists(default_service_src):
-            shutil.copyfile(default_service_src, svc_path)
-        else:
-            # Minimal template fallback
-            _atomic_write_json(svc_path, [
-                [1, "SERVEUR À REMPLIR 1", 7, ""],
-                [2, "SERVEUR À REMPLIR 2", 7, ""]
-            ])
-
-    # Bussboy
-    if _load_json_or_none(bus_path) is None:
-        if os.path.exists(default_bussboy_src):
-            shutil.copyfile(default_bussboy_src, bus_path)
-        else:
-            _atomic_write_json(bus_path, [
-                [101, "BUSSBOY À REMPLIR 1", 3, ""],
-                [102, "BUSSBOY À REMPLIR 2", 3, ""]
-            ])
-
-# Convenience: call once at app startup
-def ensure_employee_data_ready(defaults_subdir: str = "defaults") -> Tuple[str, str]:
-    """
-    Ensure backend directory exists and employee files are seeded.
-    Returns the resolved paths (service, bussboy).
-    """
-    ensure_default_employee_files(defaults_subdir=defaults_subdir)
-    return get_employee_files()
 
 # ----------------------------
 # Public API (used by the app) — PDF export dir
