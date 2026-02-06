@@ -236,6 +236,12 @@ def create_menu_bar(root, app):
             except Exception as e:
                 messagebox.showerror("Erreur", f"Impossible d’enregistrer:\n{e}")
 
+    settings_menu.add_separator()
+    settings_menu.add_command(
+        label="Paramètres de distribution",
+        command=lambda: open_distribution_settings(root, app)
+    )
+    settings_menu.add_separator()
     settings_menu.add_command(
         label="Ajuster l'échelle de l'interface…",
         command=lambda: _adjust_ui_scale(root),
@@ -265,14 +271,6 @@ def create_menu_bar(root, app):
 
     settings_button["menu"] = settings_menu
     settings_button.pack(side=LEFT, padx=5)
-
-    distribution_settings_button = ttk.Button(
-        menu_bar,
-        text="Distribution",
-        bootstyle=INFO,
-        command=lambda: open_distribution_settings(root, app)
-    )
-    distribution_settings_button.pack(side=LEFT, padx=5)
 
     # ----- Summary -----
     summary_button = ttk.Menubutton(menu_bar, text="Paye")
