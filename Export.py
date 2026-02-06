@@ -1,5 +1,4 @@
 from datetime import datetime
-from PayPeriods import get_selected_period
 from reportlab.lib.units import inch
 from reportlab.lib.pagesizes import letter, landscape
 from reportlab.pdfgen import canvas
@@ -38,9 +37,24 @@ def _pdf_root() -> str:
     """User-chosen PDF export root, or a safe fallback."""
     return get_pdf_dir() or _fallback_pdf_root()
 
-def _period_folder_from_tuple(pay_period_tuple: tuple) -> str:
-    start, end = pay_period_tuple
-    return f"{start.replace('/', '-')}_au_{end.replace('/', '-')}"
+def _safe_slug(value: str) -> str:
+    return (value or "").replace("/", "-").replace(":", "-")
+
+def _period_folder_from_info(period_info: dict) -> str:
+    if not period_info:
+        return "periode_inconnue"
+    slug = period_info.get("folder_slug")
+    if slug:
+        return _safe_slug(slug)
+    display_id = period_info.get("display_id") or "periode"
+    start_iso = period_info.get("start_date_iso") or period_info.get("start_label") or ""
+    end_iso = period_info.get("end_date_iso") or period_info.get("end_label") or ""
+    parts = [_safe_slug(display_id)]
+    if start_iso:
+        parts.append(_safe_slug(start_iso))
+    if end_iso:
+        parts.append(_safe_slug(end_iso))
+    return "_".join(parts)
 
 def _period_folder_from_label(period_label: str) -> str:
     """
@@ -60,13 +74,13 @@ def _period_folder_from_label(period_label: str) -> str:
     b = b.strip().replace("/", "-")
     return f"{a}_au_{b}"
 
-def _pdf_period_dir(category: str, pay_period_tuple: tuple) -> str:
+def _pdf_period_dir(category: str, period_info: dict) -> str:
     """
     category: 'daily' -> Résumé de shift
               'pay'   -> Paye
     """
     root = _pdf_root()
-    period_folder = _period_folder_from_tuple(pay_period_tuple)
+    period_folder = _period_folder_from_info(period_info)
     if category == "daily":
         target = os.path.join(root, "Résumé de shift", period_folder)
     else:
@@ -74,18 +88,34 @@ def _pdf_period_dir(category: str, pay_period_tuple: tuple) -> str:
     _ensure_dir(target)
     return target
 
-def _json_daily_period_dir(pay_period_tuple: tuple) -> str:
+def _json_daily_period_dir(period_info: dict) -> str:
     """
     NEW STRUCTURE:
       Daily distribution JSONs:
         {JSON_ROOT}/daily/{pay_period}/unconfirmed/...
     Where JSON_ROOT = get_backend_dir()
     """
-    start, end = pay_period_tuple
-    period_folder = f"{start.replace('/', '-')}_au_{end.replace('/', '-')}"
+    period_folder = _period_folder_from_info(period_info)
     target = os.path.join(get_backend_dir(), "daily", period_folder, "unconfirmed")
     _ensure_dir(target)
     return target
+
+def _period_label_dates(period_info: dict) -> tuple[str, str]:
+    info = period_info or {}
+    start = info.get("start_label") or info.get("start_date_iso") or ""
+    end = info.get("end_label") or info.get("end_date_iso") or ""
+    return start, end
+
+def _period_metadata(period_info: dict) -> dict:
+    info = period_info or {}
+    return {
+        "id": info.get("id"),
+        "display_id": info.get("display_id"),
+        "start_date": info.get("start_date_iso") or info.get("start_label"),
+        "end_date": info.get("end_date_iso") or info.get("end_label"),
+        "pay_date": info.get("pay_date_local"),
+        "status": info.get("status"),
+    }
 
 # -------------- Logging helpers --------------
 def _log_dir() -> str:
@@ -305,7 +335,7 @@ def draw_declaration_body(c, y, entries_decl, height):
     return y
 
 # -------------------- Export Functions (Distribution+Declaration) --------------------
-def pdf_export(date, shift, pay_period, fields, entries_dist, entries_decl, distribution_tab, decl_fields_raw, json_filename):
+def pdf_export(date, shift, period_info, fields, entries_dist, entries_decl, distribution_tab, decl_fields_raw, json_filename):
     """
     Create a 2-page PDF:
       - Page 1: Distribution
@@ -313,7 +343,7 @@ def pdf_export(date, shift, pay_period, fields, entries_dist, entries_decl, dist
     The JSON filename that corresponds to this export is printed under the pay-period line on both pages.
     PDF is saved under: {PDF_ROOT}/Résumé de shift/{period}/...
     """
-    pdf_dir = _pdf_period_dir("daily", pay_period)
+    pdf_dir = _pdf_period_dir("daily", period_info)
     base_pdf_path = os.path.join(pdf_dir, f"{date}-{shift}_distribution.pdf")
     final_pdf_path = get_unique_filename(base_pdf_path)
 
@@ -325,8 +355,12 @@ def pdf_export(date, shift, pay_period, fields, entries_dist, entries_decl, dist
     c.setFont("Helvetica-Bold", 14)
     c.drawString(50, y, f"Résumé de la distribution — {date} — {shift}")
     y -= 20
+    start_label, end_label = _period_label_dates(period_info)
     c.setFont("Helvetica", 11)
-    c.drawString(50, y, f"Période de paye: {pay_period[0]} au {pay_period[1]}")
+    if start_label and end_label:
+        c.drawString(50, y, f"Période de paye: {start_label} au {end_label}")
+    else:
+        c.drawString(50, y, "Période de paye: (inconnue)")
     y -= 18
     c.setFont("Helvetica-Oblique", 10)
     c.drawString(50, y, f"Fichier JSON: {json_filename}")
@@ -345,7 +379,10 @@ def pdf_export(date, shift, pay_period, fields, entries_dist, entries_decl, dist
     c.drawString(50, y, f"Déclaration — {date} — {shift}")
     y -= 20
     c.setFont("Helvetica", 11)
-    c.drawString(50, y, f"Période de paye: {pay_period[0]} au {pay_period[1]}")
+    if start_label and end_label:
+        c.drawString(50, y, f"Période de paye: {start_label} au {end_label}")
+    else:
+        c.drawString(50, y, "Période de paye: (inconnue)")
     y -= 18
     c.setFont("Helvetica-Oblique", 10)
     c.drawString(50, y, f"Fichier JSON: {json_filename}")
@@ -361,14 +398,14 @@ def pdf_export(date, shift, pay_period, fields, entries_dist, entries_decl, dist
     c.save()
     return final_pdf_path
 
-def json_export(date, shift, pay_period, fields_sanitized, decl_fields_raw, entries_dist, entries_decl):
+def json_export(date, shift, period_info, fields_sanitized, decl_fields_raw, entries_dist, entries_decl):
     """
     Create the merged JSON for the distribution & declaration.
     Returns (final_json_path, final_json_basename)
     JSON is saved to the internal backend folder under the NEW structure:
       {JSON_ROOT}/daily/{pay_period}/unconfirmed/{date}-{shift}_distribution.json
     """
-    json_dir = _json_daily_period_dir(pay_period)
+    json_dir = _json_daily_period_dir(period_info)
     base_json_path = os.path.join(json_dir, f"{date}-{shift}_distribution.json")
     final_json_path = get_unique_filename(base_json_path)
 
@@ -428,7 +465,7 @@ def json_export(date, shift, pay_period, fields_sanitized, decl_fields_raw, entr
     data = {
         "date": date,
         "shift": shift,
-        "pay_period": {"start": pay_period[0], "end": pay_period[1]},
+        "pay_period": _period_metadata(period_info),
         "inputs": fields_sanitized,          # distribution inputs
         "declaration_inputs": decl_vals_out, # raw declaration inputs
         "employees": merged_employees
@@ -823,14 +860,16 @@ def export_distribution_from_tab(distribution_tab):
             })
 
         # Pay period
-        selected_dt = datetime.strptime(date, "%d-%m-%Y")
-        _, pay_period_data = get_selected_period(selected_dt)
-        start_str, end_str = pay_period_data["range"].split(" - ")
-        pay_period = (start_str, end_str)
+        period_info = None
+        if hasattr(distribution_tab, "get_active_pay_period"):
+            period_info = distribution_tab.get_active_pay_period()
+        if not period_info:
+            messagebox.showerror("Période introuvable", "Impossible de déterminer la période de paye pour cette date.")
+            return
 
         # ---- Export JSON first to get its final filename (into backend DAILY) ----
         json_path, json_filename = json_export(
-            date, shift, pay_period, sanitized_inputs, raw_decl_inputs, entries_dist, entries_decl
+            date, shift, period_info, sanitized_inputs, raw_decl_inputs, entries_dist, entries_decl
         )
 
         # ---- Append an audit log entry (append-only NDJSON) ----
@@ -838,7 +877,7 @@ def export_distribution_from_tab(distribution_tab):
             "type": "distribution_export",
             "date": date,
             "shift": shift,
-            "pay_period": {"start": pay_period[0], "end": pay_period[1]},
+            "pay_period": _period_metadata(period_info),
             "json_path": json_path,
             "json_filename": json_filename,
             "inputs": raw_inputs,                  # raw text as seen in UI
@@ -849,7 +888,7 @@ def export_distribution_from_tab(distribution_tab):
 
         # ---- Export PDF, including the JSON filename on each page (into chosen PDF folder under Résumé de shift) ----
         pdf_path = pdf_export(
-            date, shift, pay_period, raw_inputs, entries_dist, entries_decl,
+            date, shift, period_info, raw_inputs, entries_dist, entries_decl,
             distribution_tab, raw_decl_inputs, json_filename
         )
 

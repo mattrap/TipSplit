@@ -25,7 +25,7 @@ from AppConfig import get_user_data_dir
 
 APP_NAME = "TipSplit"
 DB_FILENAME = "tipsplit.db"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 logger = logging.getLogger("tipsplit.db")
 
@@ -120,8 +120,7 @@ def init_db() -> None:
 
 def apply_migrations(conn: sqlite3.Connection) -> None:
     """
-    Apply pending migrations (currently only version 1).
-    Future schema upgrades should extend this function.
+    Apply pending migrations incrementally.
     """
     conn.execute(
         """
@@ -133,15 +132,22 @@ def apply_migrations(conn: sqlite3.Connection) -> None:
     )
 
     row = conn.execute("SELECT value FROM schema_meta WHERE key = 'schema_version'").fetchone()
-    if row is None:
-        logger.info("Applying schema version %s", SCHEMA_VERSION)
+    current_version = int(row["value"]) if row else 0
+
+    if current_version < 1:
+        logger.info("Applying schema version 1")
         _create_v1_schema(conn)
-        conn.execute(
-            "INSERT OR REPLACE INTO schema_meta(key, value) VALUES ('schema_version', ?)",
-            (str(SCHEMA_VERSION),),
-        )
-    else:
-        logger.info("Schema version %s already applied", row["value"])
+        current_version = 1
+
+    if current_version < 2:
+        logger.info("Applying schema upgrades to version 2")
+        _upgrade_to_v2_schema(conn)
+        current_version = 2
+
+    conn.execute(
+        "INSERT OR REPLACE INTO schema_meta(key, value) VALUES ('schema_version', ?)",
+        (str(current_version),),
+    )
 
 
 def _create_v1_schema(conn: sqlite3.Connection) -> None:
@@ -169,5 +175,108 @@ def _create_v1_schema(conn: sqlite3.Connection) -> None:
         """
         CREATE INDEX IF NOT EXISTS idx_employees_role_active
         ON employees(role, is_active);
+        """
+    )
+
+
+def _upgrade_to_v2_schema(conn: sqlite3.Connection) -> None:
+    """
+    Add payroll schedule/period tables and the shifts table.
+    """
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS pay_schedules (
+            id TEXT PRIMARY KEY,
+            group_key TEXT NOT NULL DEFAULT 'default',
+            name TEXT NOT NULL,
+            timezone TEXT NOT NULL DEFAULT 'America/Montreal',
+            period_length_days INTEGER NOT NULL DEFAULT 14,
+            pay_date_offset_days INTEGER NOT NULL DEFAULT 4,
+            anchor_start_local TEXT NOT NULL,
+            effective_from TEXT NOT NULL,
+            effective_to TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_pay_schedules_group
+        ON pay_schedules(group_key, effective_from);
+        """
+    )
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS pay_periods (
+            id TEXT PRIMARY KEY,
+            schedule_id TEXT NOT NULL,
+            start_at_utc TEXT NOT NULL,
+            end_at_utc TEXT NOT NULL,
+            pay_date_local TEXT NOT NULL,
+            label_year INTEGER NOT NULL,
+            sequence_in_year INTEGER NOT NULL,
+            display_id TEXT NOT NULL,
+            status TEXT NOT NULL CHECK(status IN ('OPEN','LOCKED','PAYED')) DEFAULT 'OPEN',
+            locked_at_utc TEXT,
+            payed_at_utc TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY(schedule_id) REFERENCES pay_schedules(id) ON DELETE CASCADE,
+            UNIQUE(schedule_id, start_at_utc),
+            UNIQUE(schedule_id, display_id),
+            CHECK(end_at_utc > start_at_utc)
+        );
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_pay_periods_sched_start
+        ON pay_periods(schedule_id, start_at_utc);
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_pay_periods_sched_end
+        ON pay_periods(schedule_id, end_at_utc);
+        """
+    )
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS pay_period_overrides (
+            id TEXT PRIMARY KEY,
+            period_id TEXT NOT NULL,
+            admin_actor TEXT,
+            field_name TEXT NOT NULL,
+            old_value TEXT,
+            new_value TEXT,
+            reason TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(period_id) REFERENCES pay_periods(id) ON DELETE CASCADE
+        );
+        """
+    )
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS shifts (
+            id TEXT PRIMARY KEY,
+            employee_id INTEGER,
+            period_id TEXT NOT NULL,
+            shift_start_at_utc TEXT NOT NULL,
+            shift_end_at_utc TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY(employee_id) REFERENCES employees(id),
+            FOREIGN KEY(period_id) REFERENCES pay_periods(id)
+        );
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_shifts_period
+        ON shifts(period_id);
         """
     )

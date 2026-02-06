@@ -299,6 +299,11 @@ class TimeSheet:
             self.shared_data.setdefault("transfer", {})
             self.shared_data["transfer"]["date"] = date_str
             self.shared_data["transfer"]["entries"] = export_data
+            period_info = self._resolve_pay_period(date_str)
+            if period_info:
+                self.shared_data["transfer"]["pay_period"] = period_info
+            else:
+                self.shared_data["transfer"].pop("pay_period", None)
 
             self.status_label.config(
                 text="✅ Les Heures ont été enregistrées et transférées à l'onglet Distribution",
@@ -324,6 +329,31 @@ class TimeSheet:
         except Exception:
             self.status_label.config(text="⛔ Erreur inattendue", foreground="#B22222")
             self.fade_out_status_label()
+
+    def _get_payroll_context(self):
+        try:
+            payroll = self.shared_data.get("payroll", {})
+            return payroll.get("context")
+        except Exception:
+            return None
+
+    def _resolve_pay_period(self, date_str: str):
+        context = self._get_payroll_context()
+        if not context:
+            return None
+        try:
+            target_date = datetime.strptime(date_str, self.date_format).date()
+        except ValueError:
+            return None
+        try:
+            return context.period_for_local_date(target_date)
+        except Exception as exc:
+            logger.warning("Impossible de déterminer la période de paye: %s", exc)
+            return None
+
+    def on_payroll_context_updated(self):
+        # Placeholder for future behaviour (ex: refresh badges)
+        pass
 
     def on_click(self, event):
         region = self.tree.identify("region", event.x, event.y)

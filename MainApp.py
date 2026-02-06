@@ -22,6 +22,9 @@ from access_control import AccessController, AccessError
 from ui.login_dialog import LoginDialog
 from db.db_manager import init_db, get_db_path
 from db.migrate_from_json import migrate_if_needed
+from payroll.bootstrap import ensure_default_schedule
+from payroll.context import PayrollContext
+from payroll.pay_calendar import PayCalendarService, PayCalendarError
 
 
 
@@ -134,6 +137,10 @@ def _bootstrap_database(root=None) -> bool:
     try:
         init_db()
         migrate_if_needed()
+        try:
+            ensure_default_schedule()
+        except Exception:
+            logging.exception("Impossible de préparer l’horaire de paie par défaut")
         logging.info("Base de données prête (%s)", get_db_path())
         return True
     except Exception as exc:
@@ -179,6 +186,9 @@ class TipSplitApp:
         # Initialize shared data with validation
         self.shared_data = {}
         self._initialize_shared_data()
+        self.pay_calendar_service = PayCalendarService()
+        self.payroll_context = PayrollContext(self.pay_calendar_service)
+        self._initialize_payroll_context()
 
         self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(fill=BOTH, expand=True)
@@ -207,10 +217,9 @@ class TipSplitApp:
         try:
             # Initialize transfer data structure
             self.shared_data.setdefault("transfer", {})
-            
-            # Initialize other shared data structures
             self.shared_data.setdefault("employee_data", {})
             self.shared_data.setdefault("pay_periods", {})
+            self.shared_data.setdefault("payroll", {})
             
             # Validate existing data if any
             self._validate_shared_data()
@@ -221,7 +230,8 @@ class TipSplitApp:
             self.shared_data = {
                 "transfer": {},
                 "employee_data": {},
-                "pay_periods": {}
+                "pay_periods": {},
+                "payroll": {},
             }
 
     def _validate_shared_data(self):
@@ -247,6 +257,62 @@ class TipSplitApp:
                 
         except Exception as e:
             print(f"⚠️ Warning: Error validating shared data: {e}")
+
+    def _initialize_payroll_context(self):
+        payroll_bucket = self.shared_data.setdefault("payroll", {})
+        try:
+            schedule = self.payroll_context.refresh_schedule()
+            self.payroll_context.ensure_window()
+            payroll_bucket["context"] = self.payroll_context
+            payroll_bucket["schedule"] = schedule
+            payroll_bucket.pop("error", None)
+        except PayCalendarError as exc:
+            logging.error("Impossible d'initialiser l'horaire de paie: %s", exc)
+            payroll_bucket["error"] = str(exc)
+
+    def refresh_payroll_context(self) -> bool:
+        payroll_bucket = self.shared_data.setdefault("payroll", {})
+        try:
+            schedule = self.payroll_context.refresh_schedule()
+            self.payroll_context.ensure_window()
+            payroll_bucket["context"] = self.payroll_context
+            payroll_bucket["schedule"] = schedule
+            payroll_bucket.pop("error", None)
+            self._notify_payroll_consumers()
+            return True
+        except PayCalendarError as exc:
+            payroll_bucket["error"] = str(exc)
+            logging.error("Mise à jour des périodes échouée: %s", exc)
+            messagebox.showerror("Périodes de paye", f"Impossible de mettre à jour les périodes: {exc}")
+            return False
+
+    def _notify_payroll_consumers(self):
+        try:
+            self.shared_data.setdefault("payroll", {})["context"] = self.payroll_context
+        except Exception:
+            pass
+        if hasattr(self, "distribution_tab") and hasattr(self.distribution_tab, "on_payroll_context_updated"):
+            try:
+                self.distribution_tab.on_payroll_context_updated()
+            except Exception:
+                logging.exception("Erreur lors de la mise à jour de l'onglet Distribution")
+        if hasattr(self, "timesheet_tab") and hasattr(self.timesheet_tab, "on_payroll_context_updated"):
+            try:
+                self.timesheet_tab.on_payroll_context_updated()
+            except Exception:
+                logging.exception("Erreur lors de la mise à jour de l'onglet TimeSheet")
+
+    def get_payroll_context(self):
+        return getattr(self, "payroll_context", None)
+
+    def _role_slug(self) -> str:
+        return (self.user_role or "user").strip().lower()
+
+    def is_manager(self) -> bool:
+        return self._role_slug() in {"admin", "owner", "manager"}
+
+    def is_admin(self) -> bool:
+        return self._role_slug() in {"admin", "owner"}
 
     def _safe_shared_data_access(self, key, default=None):
         """Safely access shared data with error handling"""
@@ -312,15 +378,15 @@ class TipSplitApp:
             self.notebook.add(self.analyse_frame, text="Analyse")
         self.notebook.select(self.analyse_frame)
 
-    def authenticate_and_show_master(self):
+    def require_manager_password(self, purpose: str = "cette action") -> bool:
         if not getattr(self, "controller", None):
             messagebox.showerror("Erreur", "Contrôleur d'accès indisponible.")
-            return
+            return False
 
         email = self.controller.email or self.user_email
         if not email:
             messagebox.showerror("Erreur", "Identité de l'utilisateur introuvable.")
-            return
+            return False
 
         password = askstring(
             "🔒 Accès restreint",
@@ -328,24 +394,29 @@ class TipSplitApp:
             show="*",
         )
         if password is None:
-            return
+            return False
         if password == "":
-            messagebox.showerror("Erreur", "Mot de passe requis pour accéder à la feuille maître.")
-            return
+            messagebox.showerror("Erreur", "Mot de passe requis pour poursuivre.")
+            return False
 
         try:
             state = self.controller.sign_in(email, password)
         except AccessError as exc:
             messagebox.showerror("Erreur", str(exc))
-            return
+            return False
         except Exception as exc:
             messagebox.showerror("Erreur", f"Impossible de vérifier votre accès : {exc}")
-            return
+            return False
 
         self.user_role = state.role or self.user_role
         self.user_email = state.email or email
         if hasattr(self, "role_var"):
             self.role_var.set(f"Role: {self.user_role}")
+        return True
+
+    def authenticate_and_show_master(self):
+        if not self.require_manager_password("accéder à la feuille maître"):
+            return
         self.show_master_tab()
 
     def show_master_tab(self):
