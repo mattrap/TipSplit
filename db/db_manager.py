@@ -25,7 +25,7 @@ from AppConfig import get_user_data_dir
 
 APP_NAME = "TipSplit"
 DB_FILENAME = "tipsplit.db"
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 1
 
 logger = logging.getLogger("tipsplit.db")
 
@@ -120,7 +120,8 @@ def init_db() -> None:
 
 def apply_migrations(conn: sqlite3.Connection) -> None:
     """
-    Apply pending migrations incrementally.
+    Initialize or refresh the schema. Since the product is not yet shipped,
+    we simply recreate the latest schema if versions differ.
     """
     conn.execute(
         """
@@ -132,29 +133,30 @@ def apply_migrations(conn: sqlite3.Connection) -> None:
     )
 
     row = conn.execute("SELECT value FROM schema_meta WHERE key = 'schema_version'").fetchone()
-    current_version = int(row["value"]) if row else 0
+    current_version = int(row["value"]) if row else None
 
-    if current_version < 1:
-        logger.info("Applying schema version 1")
-        _create_v1_schema(conn)
-        current_version = 1
-
-    if current_version < 2:
-        logger.info("Applying schema upgrades to version 2")
-        _upgrade_to_v2_schema(conn)
-        current_version = 2
-
-    conn.execute(
-        "INSERT OR REPLACE INTO schema_meta(key, value) VALUES ('schema_version', ?)",
-        (str(current_version),),
-    )
+    if current_version != SCHEMA_VERSION:
+        logger.info("Initializing schema version %s (dropping previous dev schema)", SCHEMA_VERSION)
+        _create_schema(conn)
+        conn.execute(
+            "INSERT OR REPLACE INTO schema_meta(key, value) VALUES ('schema_version', ?)",
+            (str(SCHEMA_VERSION),),
+        )
+    else:
+        logger.info("Schema version %s already applied", current_version)
 
 
-def _create_v1_schema(conn: sqlite3.Connection) -> None:
+def _create_schema(conn: sqlite3.Connection) -> None:
     """
-    Initial schema: employees table with the columns/constraints requested.
-    Additional columns (employee_number/email) preserve legacy UI data.
+    Create the full schema from scratch. Safe because no production data exists yet.
     """
+    # Drop old development tables to avoid conflicts when iterating locally.
+    conn.execute("DROP TABLE IF EXISTS pay_period_overrides;")
+    conn.execute("DROP TABLE IF EXISTS pay_periods;")
+    conn.execute("DROP TABLE IF EXISTS pay_schedules;")
+    conn.execute("DROP TABLE IF EXISTS shifts;")
+    conn.execute("DROP TABLE IF EXISTS employees;")
+
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS employees (
@@ -177,15 +179,9 @@ def _create_v1_schema(conn: sqlite3.Connection) -> None:
         ON employees(role, is_active);
         """
     )
-
-
-def _upgrade_to_v2_schema(conn: sqlite3.Connection) -> None:
-    """
-    Add payroll schedule/period tables and the shifts table.
-    """
     conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS pay_schedules (
+        CREATE TABLE pay_schedules (
             id TEXT PRIMARY KEY,
             group_key TEXT NOT NULL DEFAULT 'default',
             name TEXT NOT NULL,
@@ -209,7 +205,7 @@ def _upgrade_to_v2_schema(conn: sqlite3.Connection) -> None:
 
     conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS pay_periods (
+        CREATE TABLE pay_periods (
             id TEXT PRIMARY KEY,
             schedule_id TEXT NOT NULL,
             start_at_utc TEXT NOT NULL,
@@ -245,7 +241,7 @@ def _upgrade_to_v2_schema(conn: sqlite3.Connection) -> None:
 
     conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS pay_period_overrides (
+        CREATE TABLE pay_period_overrides (
             id TEXT PRIMARY KEY,
             period_id TEXT NOT NULL,
             admin_actor TEXT,
@@ -261,7 +257,7 @@ def _upgrade_to_v2_schema(conn: sqlite3.Connection) -> None:
 
     conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS shifts (
+        CREATE TABLE shifts (
             id TEXT PRIMARY KEY,
             employee_id INTEGER,
             period_id TEXT NOT NULL,

@@ -242,10 +242,12 @@ def create_menu_bar(root, app):
         label="Paramètres de distribution",
         command=lambda: open_distribution_settings(root, app)
     )
+    settings_menu.add_separator()
     settings_menu.add_command(
         label="Paramètres de paie",
         command=lambda: open_payroll_settings_dialog(root, app)
     )
+    settings_menu.add_separator()
     settings_menu.add_command(
         label="Calendrier de paie",
         command=lambda: open_pay_calendar_dialog(root, app)

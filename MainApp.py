@@ -21,7 +21,6 @@ from ui_scale import init_scaling, enable_high_dpi_awareness
 from access_control import AccessController, AccessError
 from ui.login_dialog import LoginDialog
 from db.db_manager import init_db, get_db_path
-from db.migrate_from_json import migrate_if_needed
 from payroll.bootstrap import ensure_default_schedule
 from payroll.context import PayrollContext
 from payroll.pay_calendar import PayCalendarService, PayCalendarError
@@ -136,7 +135,6 @@ def _configure_logging():
 def _bootstrap_database(root=None) -> bool:
     try:
         init_db()
-        migrate_if_needed()
         try:
             ensure_default_schedule()
         except Exception:
