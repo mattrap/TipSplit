@@ -445,10 +445,8 @@ class MasterSheet:
 # Run standalone
 if __name__ == "__main__":
     from db.db_manager import init_db
-    from db.migrate_from_json import migrate_if_needed
 
     init_db()
-    migrate_if_needed()
     app_root = ttk.Window(themename="flatly")
     create_menu_bar(app_root)
     MasterSheet(app_root)
