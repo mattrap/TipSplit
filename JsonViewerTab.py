@@ -1,65 +1,76 @@
-# JsonViewerTab.py — backend-only JSON browser/combiner
-# Features added:
-# 1) Sort pay periods and files newest-first
-# 2) Defensive JSON loading (clean error handling)
-# Also: keep *all* JSONs inside the app’s backend (no JSONs in user-visible folders)
+# JsonViewerTab.py — distribution review & confirmation (SQLite-backed)
 
-import os
-import json
-import glob
-import datetime as _dt
 import ttkbootstrap as ttk
 from tkinter import messagebox
 from tkinter import StringVar, END, Listbox
 from tkinter.scrolledtext import ScrolledText
 from ttkbootstrap.constants import *
 
-# JSONs (per-day and combined) live in the internal backend
-from AppConfig import get_backend_dir
 from ui_scale import scale
 from tree_utils import fit_columns
+from db.distributions_repo import (
+    delete_distribution,
+    get_distribution,
+    list_distributions,
+    list_period_ids_with_distributions,
+    set_distribution_status,
+)
+
+try:
+    from payroll.context import PayrollContext
+    from payroll.pay_calendar import PayCalendarService
+except Exception:
+    PayrollContext = None
+    PayCalendarService = None
 
 
 class JsonViewerTab:
-    def __init__(self, master):
+    def __init__(self, master, shared_data=None):
         self.master = master
         self.frame = ttk.Frame(master)
+        self.shared_data = shared_data or {}
+        self.payroll_context = self._resolve_payroll_context()
 
         # UI state
         self.pay_period_var = StringVar()
         self.json_file_var = StringVar()
-        self.current_file_path = None
+        self.current_dist_id = None
         self.current_file_source = None  # 'unconfirmed' or 'confirmed'
         self.view_mode = StringVar(value="distribution")
 
-        # --- Folders ---
+        # Map pay-period label -> period info
+        self.period_map = {}
+        self.current_period = None
 
-        self.backend_json_root = get_backend_dir()
-
-        # Per-day JSONs: {backend}/daily/{pay_period}/(unconfirmed|confirmed)/*.json
-        self.base_dir = os.path.join(self.backend_json_root, "daily")
-
-        # Combined pay summaries: {backend}/pay/{pay_period}/combined.Json
-        self.pay_root = os.path.join(self.backend_json_root, "pay")
-        os.makedirs(self.pay_root, exist_ok=True)
-
-        # Map pay-period label -> absolute path
-        self.period_paths = {}
-        # The absolute path of the currently selected pay-period folder
-        self.current_period_path = None
-        self.unconfirmed_dir = None
-        self.confirmed_dir = None
+        # Cached distribution lists (index aligned to listbox entries)
+        self.unconfirmed_entries = []
+        self.confirmed_entries = []
 
         self._build_ui()
         self.refresh_pay_periods()
         self.frame.pack(fill="both", expand=True)
+
+    def _resolve_payroll_context(self):
+        try:
+            payroll = self.shared_data.get("payroll", {})
+            ctx = payroll.get("context")
+            if ctx:
+                return ctx
+        except Exception:
+            pass
+        if PayrollContext and PayCalendarService:
+            try:
+                return PayrollContext(PayCalendarService())
+            except Exception:
+                return None
+        return None
 
     def _build_ui(self):
         # Header
         header_frame = ttk.Frame(self.frame)
         header_frame.pack(fill=X, pady=5, padx=10)
 
-        ttk.Label(header_frame, text="Période de paye (backend):").pack(side=LEFT)
+        ttk.Label(header_frame, text="Période de paye:").pack(side=LEFT)
         self.period_menu = ttk.Combobox(header_frame, textvariable=self.pay_period_var, state="readonly", width=28)
         self.period_menu.pack(side=LEFT, padx=5)
         self.period_menu.bind("<<ComboboxSelected>>", self.on_period_select)
@@ -85,7 +96,7 @@ class JsonViewerTab:
         self.view_dist_btn.pack(side=LEFT)
         self.view_decl_btn.pack(side=LEFT, padx=6)
 
-        # JSON file lists (unconfirmed vs confirmed)
+        # Distribution lists (unconfirmed vs confirmed)
         list_frame = ttk.Frame(self.frame)
         list_frame.pack(fill=X, padx=10, pady=(2, 0))
 
@@ -150,10 +161,10 @@ class JsonViewerTab:
             "<<ListboxSelect>>", lambda e: self.on_file_select(e, source="confirmed")
         )
 
-        ttk.Button(
+        ttk.Label(
             conf_frame,
-            text="Créer fichier combiné",
-            command=self.on_create_combined_file,
+            text="(Le fichier combiné n'est plus requis)",
+            bootstyle="secondary",
         ).pack(fill=X)
 
         self.file_info_var = StringVar(value="Aucun fichier sélectionné")
@@ -203,7 +214,7 @@ class JsonViewerTab:
             tree_container, columns=columns, show="headings", style="Custom.Treeview"
         )
         headings = {
-            "id": "#",
+            "id": "Numéro",
             "name": "Nom",
             "hours": "Heures",
             "cash": "Cash",
@@ -262,31 +273,31 @@ class JsonViewerTab:
     # Pay period loading
     # -----------------------
     def refresh_pay_periods(self):
-        # Ensure base directory exists
-        os.makedirs(self.base_dir, exist_ok=True)
-
-        # Discover pay-period folders and build label->path map
-        self.period_paths = {}
+        self.period_map = {}
+        period_ids = list_period_ids_with_distributions()
         periods = []
-        try:
-            for name in os.listdir(self.base_dir):
-                full_path = os.path.join(self.base_dir, name)
-                if os.path.isdir(full_path):
-                    periods.append(name)
-                    self.period_paths[name] = full_path
-        except FileNotFoundError:
-            pass
+        for pid in period_ids:
+            info = {"id": pid}
+            if self.payroll_context:
+                try:
+                    info = self.payroll_context.get_period(pid)
+                except Exception:
+                    info = {"id": pid}
+            range_label = info.get("range_label")
+            label = range_label or info.get("display_id") or pid
+            periods.append((label, info))
 
-        # Feature 1: newest-first sort (string sort works for ISO-like labels)
-        periods = sorted(periods, reverse=True)
-        self.period_menu["values"] = periods
+        periods.sort(key=lambda item: item[1].get("start_at_utc", ""), reverse=True)
+        self.period_menu["values"] = [label for label, _ in periods]
+        for label, info in periods:
+            self.period_map[label] = info
 
         # Preserve selection if possible, otherwise select first available
         current = (self.pay_period_var.get() or "").strip()
-        if current in periods:
+        if current in self.period_map:
             self.pay_period_var.set(current)
-        elif periods:
-            self.pay_period_var.set(periods[0])
+        elif self.period_map:
+            self.pay_period_var.set(list(self.period_map.keys())[0])
         else:
             self.pay_period_var.set("")
 
@@ -299,38 +310,37 @@ class JsonViewerTab:
         self.confirmed_listbox.delete(0, END)
         self.clear_treeviews()
         self.file_info_var.set("Aucun fichier sélectionné!")
-        self.current_file_path = None
+        self.current_dist_id = None
         self.current_file_source = None
         self.delete_btn.config(state=DISABLED)
         self.transfer_btn.config(state=DISABLED)
         self.transfer_back_btn.config(state=DISABLED)
+        self.unconfirmed_entries = []
+        self.confirmed_entries = []
 
         label = (self.pay_period_var.get() or "").strip()
         if not label:
-            self.current_period_path = None
-            self.unconfirmed_dir = None
-            self.confirmed_dir = None
+            self.current_period = None
             return
 
-        folder_path = self.period_paths.get(label) or os.path.join(self.base_dir, label)
-        self.current_period_path = folder_path  # cache for later actions
-        self.unconfirmed_dir = os.path.join(folder_path, "unconfirmed")
-        self.confirmed_dir = os.path.join(folder_path, "confirmed")
-        os.makedirs(self.unconfirmed_dir, exist_ok=True)
-        os.makedirs(self.confirmed_dir, exist_ok=True)
+        self.current_period = self.period_map.get(label)
+        if not self.current_period:
+            return
 
-        # Feature 1: newest-first file list for each folder
-        unconfirmed_files = sorted(
-            (f for f in os.listdir(self.unconfirmed_dir) if f.endswith(".json")), reverse=True
-        )
-        for f in unconfirmed_files:
-            self.unconfirmed_listbox.insert(END, f)
+        period_id = self.current_period.get("id")
+        unconfirmed = list_distributions(pay_period_id=period_id, status="UNCONFIRMED")
+        confirmed = list_distributions(pay_period_id=period_id, status="CONFIRMED")
 
-        confirmed_files = sorted(
-            (f for f in os.listdir(self.confirmed_dir) if f.endswith(".json")), reverse=True
-        )
-        for f in confirmed_files:
-            self.confirmed_listbox.insert(END, f)
+        self.unconfirmed_entries = unconfirmed
+        self.confirmed_entries = confirmed
+
+        for row in unconfirmed:
+            display = f"{row.get('date_local', '')} {row.get('shift', '')} — {row.get('dist_ref', '')}"
+            self.unconfirmed_listbox.insert(END, display)
+
+        for row in confirmed:
+            display = f"{row.get('date_local', '')} {row.get('shift', '')} — {row.get('dist_ref', '')}"
+            self.confirmed_listbox.insert(END, display)
 
     # -----------------------
     # File selection & display
@@ -340,53 +350,40 @@ class JsonViewerTab:
         if source == "unconfirmed":
             selection = self.unconfirmed_listbox.curselection()
             self.confirmed_listbox.selection_clear(0, END)
-            base_dir = self.unconfirmed_dir
+            entries = self.unconfirmed_entries
         else:
             selection = self.confirmed_listbox.curselection()
             self.unconfirmed_listbox.selection_clear(0, END)
-            base_dir = self.confirmed_dir
+            entries = self.confirmed_entries
 
-        if not selection or not base_dir:
+        if not selection or not entries:
             return
 
-        selected_file = (
-            self.unconfirmed_listbox.get(selection[0])
-            if source == "unconfirmed"
-            else self.confirmed_listbox.get(selection[0])
-        )
-
-        if not self.current_period_path:
-            messagebox.showerror("Erreur", "Aucun dossier de période sélectionné.")
+        idx = selection[0]
+        if idx < 0 or idx >= len(entries):
             return
-
-        self.current_file_path = os.path.join(base_dir, selected_file)
+        dist_id = entries[idx].get("id")
+        self.current_dist_id = dist_id
         self.current_file_source = source
-        try:
-            mtime = os.path.getmtime(self.current_file_path)
-            ts = _dt.datetime.fromtimestamp(mtime).isoformat(timespec="seconds")
-            self.file_info_var.set(f"Fichier sélectionné: {selected_file} // Créé le: {ts}")
-        except OSError:
-            self.file_info_var.set(f"Fichier sélectionné: {selected_file}")
-
-        # Feature 2: defensive JSON load
-        try:
-            with open(self.current_file_path, "r", encoding="utf-8") as f:
-                content = json.load(f)
-        except Exception as e:
-            messagebox.showerror("Erreur", f"Impossible de charger le fichier JSON:\n{type(e).__name__}: {e}")
+        dist = get_distribution(dist_id)
+        if not dist:
+            messagebox.showerror("Erreur", "Distribution introuvable.")
             return
+        ts = dist.get("created_at") or ""
+        dist_ref = dist.get("dist_ref") or ""
+        self.file_info_var.set(f"Distribution sélectionnée: {dist_ref} // Créée le: {ts}")
 
         try:
             self.clear_treeviews()
 
             # Distribution inputs
-            inputs = content.get("inputs", {})
+            inputs = dist.get("inputs", {})
             self.inputs_text.delete("1.0", END)
             for key, val in inputs.items():
                 self.inputs_text.insert(END, f"{key}: {val}\n")
 
             # Declaration inputs
-            decl_inputs = content.get("declaration_inputs", {})
+            decl_inputs = dist.get("declaration_inputs", {})
             self.decl_inputs_text.delete("1.0", END)
             if decl_inputs:
                 for key, val in decl_inputs.items():
@@ -395,7 +392,7 @@ class JsonViewerTab:
                 self.decl_inputs_text.insert(END, "(Aucune donnée de déclaration)")
 
             # Employees rows (supports both views)
-            for emp in content.get("employees", []):
+            for emp in dist.get("employees", []):
                 if not isinstance(emp, dict):
                     continue
 
@@ -406,8 +403,8 @@ class JsonViewerTab:
                     "",
                     END,
                     values=(
-                        emp.get("employee_id", ""),
-                        emp.get("name", ""),
+                        emp.get("employee_number", ""),
+                        emp.get("employee_name", ""),
                         emp.get("hours", 0.0),
                         emp.get("cash", 0.0),
                         emp.get("sur_paye", 0.0),
@@ -437,7 +434,7 @@ class JsonViewerTab:
                 self.transfer_back_btn.config(state=NORMAL)
 
         except Exception as e:
-            messagebox.showerror("Erreur", f"Impossible d’afficher le JSON chargé:\n{type(e).__name__}: {e}")
+            messagebox.showerror("Erreur", f"Impossible d’afficher la distribution:\n{type(e).__name__}: {e}")
 
     def clear_treeviews(self):
         self.inputs_text.delete("1.0", END)
@@ -449,24 +446,22 @@ class JsonViewerTab:
     # Delete action
     # -----------------------
     def delete_selected_file(self):
-        if not self.current_file_path or self.current_file_source != "unconfirmed":
+        if not self.current_dist_id or self.current_file_source != "unconfirmed":
             messagebox.showwarning(
                 "Sélection requise",
                 "Veuillez sélectionner un fichier NON-vérifié à supprimer.",
             )
             return
-
-        file_name = os.path.basename(self.current_file_path)
         confirm = messagebox.askyesno(
             "Confirmer la suppression",
-            f"Êtes-vous sûr de vouloir supprimer '{file_name}' ?"
+            "Êtes-vous sûr de vouloir supprimer cette distribution ?"
         )
         if confirm:
             try:
-                os.remove(self.current_file_path)
-                messagebox.showinfo("Supprimé", "Fichier supprimé avec succès.")
+                delete_distribution(self.current_dist_id)
+                messagebox.showinfo("Supprimé", "Distribution supprimée avec succès.")
                 self.on_period_select(None)
-                self.current_file_path = None
+                self.current_dist_id = None
                 self.current_file_source = None
                 self.file_info_var.set("Aucun fichier sélectionné")
                 self.clear_treeviews()
@@ -476,40 +471,19 @@ class JsonViewerTab:
             except Exception as e:
                 messagebox.showerror("Erreur", f"Échec de la suppression:\n{str(e)}")
 
-    # -----------------------
-    # Transfer action
-    # -----------------------
-    def _unique_dest_path(self, directory: str, filename: str) -> str:
-        """Return a path in `directory` for `filename` that doesn't overwrite existing files.
-
-        If `filename` exists, append " (n)" before the extension, incrementing n
-        until an available name is found.
-        """
-        base, ext = os.path.splitext(filename)
-        candidate = os.path.join(directory, filename)
-        counter = 1
-        while os.path.exists(candidate):
-            candidate = os.path.join(directory, f"{base} ({counter}){ext}")
-            counter += 1
-        return candidate
-
     def confirm_selected_file(self):
-        """Move the selected unconfirmed file into the confirmed folder."""
-        if not self.current_file_path or self.current_file_source != "unconfirmed":
+        """Mark the selected distribution as confirmed."""
+        if not self.current_dist_id or self.current_file_source != "unconfirmed":
             messagebox.showwarning(
                 "Sélection requise",
                 "Veuillez sélectionner un fichier non-vérifié à confirmer.",
             )
             return
-
-        # Compute a destination path that never overwrites existing files
-        dest = self._unique_dest_path(self.confirmed_dir, os.path.basename(self.current_file_path))
         try:
-            os.makedirs(self.confirmed_dir, exist_ok=True)
-            os.replace(self.current_file_path, dest)
-            messagebox.showinfo("Confirmé", "Confirmer cette distribution?")
+            set_distribution_status(self.current_dist_id, "CONFIRMED")
+            messagebox.showinfo("Confirmé", "Distribution confirmée.")
             self.on_period_select(None)
-            self.current_file_path = None
+            self.current_dist_id = None
             self.current_file_source = None
             self.file_info_var.set("Aucun fichier sélectionné")
             self.clear_treeviews()
@@ -520,22 +494,18 @@ class JsonViewerTab:
             messagebox.showerror("Erreur", f"Échec du transfert:\n{e}")
 
     def unconfirm_selected_file(self):
-        """Move the selected confirmed file back into the unconfirmed folder."""
-        if not self.current_file_path or self.current_file_source != "confirmed":
+        """Mark the selected distribution as unconfirmed."""
+        if not self.current_dist_id or self.current_file_source != "confirmed":
             messagebox.showwarning(
                 "Sélection requise",
                 "Veuillez sélectionner un fichier confirmé à retourner.",
             )
             return
-
-        # Compute a destination path that never overwrites existing files
-        dest = self._unique_dest_path(self.unconfirmed_dir, os.path.basename(self.current_file_path))
         try:
-            os.makedirs(self.unconfirmed_dir, exist_ok=True)
-            os.replace(self.current_file_path, dest)
-            messagebox.showinfo("Retourné", "Fichier déplacé vers NON-vérifiés.")
+            set_distribution_status(self.current_dist_id, "UNCONFIRMED")
+            messagebox.showinfo("Retourné", "Distribution retournée aux NON-vérifiées.")
             self.on_period_select(None)
-            self.current_file_path = None
+            self.current_dist_id = None
             self.current_file_source = None
             self.file_info_var.set("Aucun fichier sélectionné")
             self.clear_treeviews()
@@ -544,122 +514,3 @@ class JsonViewerTab:
             self.delete_btn.config(state=DISABLED)
         except Exception as e:
             messagebox.showerror("Erreur", f"Échec du transfert:\n{e}")
-
-    # -----------------------
-    # Helpers for period info
-    # -----------------------
-    def _resolve_selected_pay_period_label(self) -> str:
-        """Return the currently selected pay period label from the combobox."""
-        return (self.pay_period_var.get() or "").strip()
-
-    def _resolve_selected_pay_period_path(self) -> str:
-        """
-        Resolve the selected pay period folder using the label->path map.
-        """
-        label = self._resolve_selected_pay_period_label()
-        if not label:
-            raise RuntimeError("Aucune période sélectionnée.")
-
-        # Prefer the cached path set by on_period_select
-        if self.current_period_path:
-            return self.current_period_path
-
-        # Fall back to the map or base_dir + label
-        path = self.period_paths.get(label) or os.path.join(self.base_dir, label)
-        if not os.path.isdir(path):
-            raise FileNotFoundError(f"Dossier introuvable: {path}")
-        return path
-
-    # -----------------------
-    # Combine action
-    # -----------------------
-    def on_create_combined_file(self):
-        """
-        Handler for the 'Créer fichier combiné' button.
-
-        It combines all *.json distributions from the selected backend period folder and writes:
-         {backend}/pay/{pay_period}/combined.Json
-
-
-        (No JSONs are written outside the app folder.)
-        """
-        period_label = self._resolve_selected_pay_period_label()
-        if not period_label:
-            messagebox.showerror("Erreur", "Veuillez sélectionner une période de paye.")
-            return
-
-        try:
-            pay_period_path = self._resolve_selected_pay_period_path()
-        except Exception as e:
-            messagebox.showerror("Erreur", f"Impossible de localiser le dossier de la période:\n{e}")
-            return
-
-        try:
-            out_path = self._combine_all_jsons_in_period(pay_period_path, period_label)
-            messagebox.showinfo("Succès", f"Fichier combiné créé:\n{out_path}")
-            # Refresh the list (we're browsing per-day JSONs; combined lives elsewhere)
-            self.on_period_select(None)
-        except Exception as e:
-            messagebox.showerror("Erreur", f"Échec de la création du fichier combiné:\n{e}")
-
-    def _combine_all_jsons_in_period(self, pay_period_path: str, pay_period_label: str) -> str:
-        """
-        Combine every *.json file in the selected backend pay-period folder into:
-            {backend}/pay/{pay_period_label}/combined.Json
-
-        The result contains:
-            {
-              "pay_period": "...",
-              "created_at": "...",
-              "num_files": N,
-              "distributions": [
-                {"filename": "...", "content": {...}} or {"filename": "...", "error": "..."}
-              ]
-            }
-
-        Returns the absolute output file path.
-        """
-        if not os.path.isdir(pay_period_path):
-            raise FileNotFoundError(f"Dossier introuvable: {pay_period_path}")
-
-        confirmed_dir = os.path.join(pay_period_path, "confirmed")
-        if not os.path.isdir(confirmed_dir):
-            raise FileNotFoundError(f"Dossier introuvable: {confirmed_dir}")
-
-        out_dir = os.path.join(self.pay_root, pay_period_label)
-        os.makedirs(out_dir, exist_ok=True)
-        out_path = os.path.join(out_dir, "combined.Json")
-
-        # Gather candidates from the confirmed folder
-        all_jsons = sorted(
-            p for p in glob.glob(os.path.join(confirmed_dir, "*.json"))
-            if os.path.isfile(p)
-        )
-
-        # Exclude any known aggregate/final files if they exist inside the folder
-        excluded_names = {"combined.Json", f"{pay_period_label}_pay_data.json"}
-        jsons_to_merge = [p for p in all_jsons if os.path.basename(p) not in excluded_names]
-
-        combined = {
-            "pay_period": pay_period_label,
-            "created_at": _dt.datetime.now().isoformat(timespec="seconds"),
-            "num_files": len(jsons_to_merge),
-            "distributions": []
-        }
-
-        for p in jsons_to_merge:
-            entry = {"filename": os.path.basename(p)}
-            try:
-                with open(p, "r", encoding="utf-8") as f:
-                    entry["content"] = json.load(f)
-            except Exception as e:
-                entry["error"] = f"{type(e).__name__}: {e}"
-            combined["distributions"].append(entry)
-
-        # Atomic write
-        tmp = out_path + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(combined, f, ensure_ascii=False, indent=2)
-        os.replace(tmp, out_path)
-
-        return out_path

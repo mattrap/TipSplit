@@ -25,7 +25,7 @@ from AppConfig import get_user_data_dir
 
 APP_NAME = "TipSplit"
 DB_FILENAME = "tipsplit.db"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 logger = logging.getLogger("tipsplit.db")
 
@@ -151,6 +151,11 @@ def _create_schema(conn: sqlite3.Connection) -> None:
     Create the full schema from scratch. Safe because no production data exists yet.
     """
     # Drop old development tables to avoid conflicts when iterating locally.
+    conn.execute("DROP TABLE IF EXISTS distribution_audit;")
+    conn.execute("DROP TABLE IF EXISTS distribution_employees;")
+    conn.execute("DROP TABLE IF EXISTS distribution_declaration_inputs;")
+    conn.execute("DROP TABLE IF EXISTS distribution_inputs;")
+    conn.execute("DROP TABLE IF EXISTS distributions;")
     conn.execute("DROP TABLE IF EXISTS pay_period_overrides;")
     conn.execute("DROP TABLE IF EXISTS pay_periods;")
     conn.execute("DROP TABLE IF EXISTS pay_schedules;")
@@ -274,5 +279,104 @@ def _create_schema(conn: sqlite3.Connection) -> None:
         """
         CREATE INDEX IF NOT EXISTS idx_shifts_period
         ON shifts(period_id);
+        """
+    )
+
+    conn.execute(
+        """
+        CREATE TABLE distributions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            dist_ref TEXT UNIQUE,
+            pay_period_id TEXT NOT NULL,
+            date_local TEXT NOT NULL,
+            shift TEXT NOT NULL,
+            status TEXT NOT NULL CHECK(status IN ('UNCONFIRMED','CONFIRMED')) DEFAULT 'UNCONFIRMED',
+            created_at TEXT NOT NULL,
+            confirmed_at TEXT,
+            created_by TEXT,
+            confirmed_by TEXT,
+            FOREIGN KEY(pay_period_id) REFERENCES pay_periods(id) ON DELETE CASCADE,
+            UNIQUE(pay_period_id, date_local, shift)
+        );
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_distributions_period_status
+        ON distributions(pay_period_id, status);
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_distributions_date
+        ON distributions(date_local);
+        """
+    )
+
+    conn.execute(
+        """
+        CREATE TABLE distribution_inputs (
+            distribution_id INTEGER PRIMARY KEY,
+            ventes_nettes REAL,
+            depot_net REAL,
+            frais_admin REAL,
+            cash REAL,
+            FOREIGN KEY(distribution_id) REFERENCES distributions(id) ON DELETE CASCADE
+        );
+        """
+    )
+
+    conn.execute(
+        """
+        CREATE TABLE distribution_declaration_inputs (
+            distribution_id INTEGER PRIMARY KEY,
+            ventes_totales REAL,
+            clients INTEGER,
+            tips_due REAL,
+            ventes_nourriture REAL,
+            FOREIGN KEY(distribution_id) REFERENCES distributions(id) ON DELETE CASCADE
+        );
+        """
+    )
+
+    conn.execute(
+        """
+        CREATE TABLE distribution_employees (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            distribution_id INTEGER NOT NULL,
+            employee_number TEXT,
+            employee_name TEXT NOT NULL,
+            section TEXT,
+            hours REAL,
+            cash REAL,
+            sur_paye REAL,
+            frais_admin REAL,
+            A REAL,
+            B REAL,
+            D REAL,
+            E REAL,
+            F REAL,
+            FOREIGN KEY(distribution_id) REFERENCES distributions(id) ON DELETE CASCADE
+        );
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_distribution_employees_dist
+        ON distribution_employees(distribution_id);
+        """
+    )
+
+    conn.execute(
+        """
+        CREATE TABLE distribution_audit (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            distribution_id INTEGER NOT NULL,
+            action TEXT NOT NULL,
+            actor TEXT,
+            created_at TEXT NOT NULL,
+            details_json TEXT,
+            FOREIGN KEY(distribution_id) REFERENCES distributions(id) ON DELETE CASCADE
+        );
         """
     )

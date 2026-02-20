@@ -1,13 +1,17 @@
-import os
-import json
 import re
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 import tkinter as tk
 from tkinter import Listbox, END, BROWSE
 
-from AppConfig import get_backend_dir
 from ui_scale import scale
+from db.distributions_repo import get_distributions_for_period, list_period_ids_with_distributions
+try:
+    from payroll.context import PayrollContext
+    from payroll.pay_calendar import PayCalendarService
+except Exception:
+    PayrollContext = None
+    PayCalendarService = None
 
 # Reuse helpers from Pay if available
 try:
@@ -41,22 +45,36 @@ except Exception:
 
 
 class AnalyseTab:
-    def __init__(self, master):
+    def __init__(self, master, shared_data=None):
         self.master = master
         self.frame = ttk.Frame(master)
+        self.shared_data = shared_data or {}
+        self.payroll_context = self._resolve_payroll_context()
 
-        # Backend root and pay dir
-        self.backend_root = get_backend_dir()
-        self.pay_dir = os.path.join(self.backend_root, "pay")
-
-        # Map: period_label -> combined.Json path (read-only)
-        self._period_to_path = {}
+        # Map: period_label -> period info
+        self._period_map = {}
         self.current_period_label = None
-        self.current_combined = None
+        self.current_period = None
+        self.current_distributions = None
 
         self._build_ui()
         self.refresh_periods()
         self.frame.pack(fill=BOTH, expand=True)
+
+    def _resolve_payroll_context(self):
+        try:
+            payroll = self.shared_data.get("payroll", {})
+            ctx = payroll.get("context")
+            if ctx:
+                return ctx
+        except Exception:
+            pass
+        if PayrollContext and PayCalendarService:
+            try:
+                return PayrollContext(PayCalendarService())
+            except Exception:
+                return None
+        return None
 
     # ----------------------- UI -----------------------
     def _build_ui(self):
@@ -139,96 +157,97 @@ class AnalyseTab:
 
     # ----------------------- Data discovery -----------------------
     def refresh_periods(self):
-        self._period_to_path = {}
-        try:
-            if os.path.isdir(self.pay_dir):
-                for period in os.listdir(self.pay_dir):
-                    pdir = os.path.join(self.pay_dir, period)
-                    if not os.path.isdir(pdir):
-                        continue
-                    preferred = os.path.join(pdir, "combined.Json")
-                    if os.path.isfile(preferred):
-                        self._period_to_path[period] = preferred
-                    else:
-                        candidates = [f for f in os.listdir(pdir) if f.endswith(".Json")]
-                        if candidates:
-                            self._period_to_path[period] = os.path.join(pdir, sorted(candidates)[0])
-        except Exception:
-            pass
+        self._period_map = {}
+        period_ids = list_period_ids_with_distributions(status="CONFIRMED")
+        periods = []
+        for pid in period_ids:
+            info = {"id": pid}
+            if self.payroll_context:
+                try:
+                    info = self.payroll_context.get_period(pid)
+                except Exception:
+                    info = {"id": pid}
+            range_label = info.get("range_label")
+            label = range_label or info.get("display_id") or pid
+            periods.append((label, info))
 
-        periods = sorted(self._period_to_path.keys())
+        periods.sort(key=lambda item: item[1].get("start_at_utc", ""), reverse=True)
+        for label, info in periods:
+            self._period_map[label] = info
+
+        labels = [label for label, _ in periods]
         self.period_list.delete(0, END)
-        for p in periods:
-            self.period_list.insert(END, p)
+        for label in labels:
+            self.period_list.insert(END, label)
 
         # Clear selection and canvas on refresh
         self.current_period_label = None
-        self.current_combined = None
+        self.current_period = None
+        self.current_distributions = None
         self._draw_placeholder(self.chart_canvas, "Sélectionnez une période à analyser…")
 
     # ----------------------- Interaction -----------------------
     def on_selection_change(self, event=None):
         self.read_selected_pay_file()
         self.update_chart()
-        self._update_summary_table(self.current_combined)
+        self._update_summary_table(self.current_distributions)
 
     # ----------------------- Core functions -----------------------
     def read_selected_pay_file(self):
-        """Read the selected pay period's combined.Json into memory."""
+        """Load distributions for the selected pay period."""
         sel = self.period_list.curselection()
         if not sel:
             self.current_period_label = None
-            self.current_combined = None
+            self.current_period = None
+            self.current_distributions = None
             return None
         label = self.period_list.get(sel[0])
-        path = self._period_to_path.get(label)
-        if not path or not os.path.isfile(path):
+        info = self._period_map.get(label)
+        if not info:
             self.current_period_label = None
-            self.current_combined = None
+            self.current_period = None
+            self.current_distributions = None
             return None
         try:
-            with open(path, "r", encoding="utf-8") as f:
-                combined = json.load(f)
+            dists = get_distributions_for_period(
+                pay_period_id=info.get("id"),
+                status="CONFIRMED",
+            )
         except Exception:
             self.current_period_label = None
-            self.current_combined = None
+            self.current_period = None
+            self.current_distributions = None
             return None
         self.current_period_label = label
-        self.current_combined = combined
-        return combined
+        self.current_period = info
+        self.current_distributions = dists
+        return dists
 
-    def _collect_daily_ventes_nettes(self, combined: dict) -> dict:
-        """Return dict date_str -> ventes_nettes (float) using filename as date source."""
+    def _collect_daily_ventes_nettes(self, distributions: list) -> dict:
+        """Return dict date_str -> ventes_nettes (float)."""
         per_day = {}
-        if not isinstance(combined, dict):
+        if not isinstance(distributions, list):
             return per_day
-        dists = combined.get("distributions", [])
-        for item in dists:
-            if not isinstance(item, dict) or "error" in item:
+        for dist in distributions:
+            if not isinstance(dist, dict):
                 continue
-            filename = safe_str(item.get("filename", ""))
-            content = item.get("content", {})
-            if not isinstance(content, dict):
-                continue
-            # Date from filename
-            date, _shift = self._parse_date_shift_from_filename(os.path.splitext(filename)[0])
+            date = safe_str(dist.get("date_local"))
             if not date:
                 continue
-            # Ventes Nettes from inputs
-            inputs = content.get("inputs", {}) if isinstance(content.get("inputs", {}), dict) else {}
+            inputs = dist.get("inputs", {}) if isinstance(dist.get("inputs", {}), dict) else {}
             ventes_nettes = to_float(inputs.get("Ventes Nettes", 0.0))
             per_day[date] = per_day.get(date, 0.0) + ventes_nettes
         return per_day
 
     def update_chart(self):
         """
-        Read current_combined and UI state (aggregation mode + metric),
+        Read current_distributions and UI state (aggregation mode + metric),
         compute the series, and draw bars.
         Metrics supported: 'ventes_nettes', 'ventes_per_hr_service', 'tip_pct'.
         """
         c = self.chart_canvas
         c.delete("all")
-        if not self.current_combined or not self.current_period_label:
+        if not self.current_distributions or not self.current_period_label:
             self._draw_placeholder(c, "Sélectionnez une période à analyser…")
             return
 
@@ -239,10 +258,10 @@ class AnalyseTab:
         }.get(self.metric_choice.get(), "ventes_nettes")
 
         agg_mode = self.agg_mode.get()
-        start_dt, end_dt = self._parse_period_bounds(self.current_period_label)
+        start_dt, end_dt = self._get_period_bounds()
 
         if agg_mode == "day":
-            data = self._aggregate_per_day(self.current_combined)
+            data = self._aggregate_per_day(self.current_distributions)
             x_labels = []
             values = []
             from datetime import datetime, timedelta
@@ -270,7 +289,7 @@ class AnalyseTab:
             self._draw_bars(x_labels, values, y_suffix=y_suffix)
         elif agg_mode == "weekday":
             # Aggregate per weekday and plot Monday -> Sunday
-            data = self._aggregate_per_weekday(self.current_combined)
+            data = self._aggregate_per_weekday(self.current_distributions)
             weekdays_order = [
                 "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"
             ]
@@ -282,7 +301,7 @@ class AnalyseTab:
             y_suffix = "%" if metric_key == "tip_pct" else None
             self._draw_bars(x_labels, values, y_suffix=y_suffix)
         else:
-            data = self._aggregate_per_day_shift(self.current_combined)
+            data = self._aggregate_per_day_shift(self.current_distributions)
             # Build labels by available keys sorted by date then shift order
             from datetime import datetime
             def sort_key(item):
@@ -312,7 +331,7 @@ class AnalyseTab:
             self._draw_bars(x_labels, values, y_suffix=y_suffix)
 
         # Keep summary synchronized with any toggle change
-        self._update_summary_table(self.current_combined)
+        self._update_summary_table(self.current_distributions)
 
     def _metric_from_record(self, rec: dict, metric_key: str) -> float:
         ventes = float(rec.get("ventes_nettes", 0.0) or 0.0)
@@ -443,48 +462,39 @@ class AnalyseTab:
         except Exception:
             return None, None
 
-    # ----------------------- New data collectors -----------------------
-    def _iter_distributions(self, combined: dict):
-        """Yield (date_iso, shift_upper, inputs_dict, employees_list) for each valid distribution."""
-        if not isinstance(combined, dict):
-            return
-        dists = combined.get("distributions", [])
-        if not isinstance(dists, list):
-            return
+    def _get_period_bounds(self):
+        """Prefer exact bounds from the payroll context; fallback to parsing label."""
         from datetime import datetime
-        for item in dists:
-            if not isinstance(item, dict) or "error" in item:
-                continue
-            filename = safe_str(item.get("filename", ""))
-            content = item.get("content", {})
-            if not isinstance(content, dict):
-                continue
-            fname_noext = os.path.splitext(filename)[0]
-            date_str, shift_raw = self._parse_date_shift_from_filename(fname_noext)
-            if not date_str:
-                continue
-            date_iso = ""
+        info = self.current_period or {}
+        start_iso = info.get("start_date_iso")
+        end_iso = info.get("end_date_iso")
+        if start_iso and end_iso:
             try:
-                if re.match(r"^\d{4}-\d{2}-\d{2}$", date_str):
-                    date_iso = date_str
-                elif re.match(r"^\d{2}-\d{2}-\d{4}$", date_str):
-                    dt = datetime.strptime(date_str, "%d-%m-%Y")
-                    date_iso = dt.strftime("%Y-%m-%d")
-                else:
-                    # Attempt generic parse
-                    dt = datetime.fromisoformat(date_str)
-                    date_iso = dt.strftime("%Y-%m-%d")
+                return datetime.strptime(start_iso, "%Y-%m-%d"), datetime.strptime(end_iso, "%Y-%m-%d")
             except Exception:
+                pass
+        return self._parse_period_bounds(self.current_period_label or "")
+
+    # ----------------------- New data collectors -----------------------
+    def _iter_distributions(self, distributions: list):
+        """Yield (date_iso, shift_upper, inputs_dict, employees_list) for each valid distribution."""
+        if not isinstance(distributions, list):
+            return
+        for dist in distributions:
+            if not isinstance(dist, dict):
                 continue
-            shift_upper = safe_str(shift_raw).strip().upper()
+            date_iso = safe_str(dist.get("date_iso") or dist.get("date_local"))
+            if not date_iso:
+                continue
+            shift_upper = safe_str(dist.get("shift")).strip().upper()
             if "MAT" in shift_upper:
                 shift_upper = "MATIN"
             elif "SOIR" in shift_upper or shift_upper == "PM":
                 shift_upper = "SOIR"
             else:
                 shift_upper = "NA"
-            inputs = content.get("inputs", {}) if isinstance(content.get("inputs", {}), dict) else {}
-            employees = content.get("employees", []) if isinstance(content.get("employees", []), list) else []
+            inputs = dist.get("inputs", {}) if isinstance(dist.get("inputs", {}), dict) else {}
+            employees = dist.get("employees", []) if isinstance(dist.get("employees", []), list) else []
             yield (date_iso, shift_upper, inputs, employees)
 
     def _collect_service_hours(self, employees: list) -> float:
@@ -509,7 +519,7 @@ class AnalyseTab:
         return (-depot_net) + cash + (frais_admin * 0.8)
 
     # ----------------------- Aggregations -----------------------
-    def _aggregate_per_day(self, combined: dict):
+    def _aggregate_per_day(self, distributions: list):
         """
         Return dict keyed by date_iso -> {
             'ventes_nettes': float,
@@ -521,7 +531,7 @@ class AnalyseTab:
           tip_pct = tips_adj / max(ventes_nettes, 0.0001)
         """
         out = {}
-        for date_iso, _shift, inputs, employees in self._iter_distributions(combined):
+        for date_iso, _shift, inputs, employees in self._iter_distributions(distributions):
             ventes = to_float(inputs.get("Ventes Nettes", 0.0))
             hours = self._collect_service_hours(employees)
             tips = self._compute_adjusted_tips(inputs)
@@ -534,13 +544,13 @@ class AnalyseTab:
             rec["tips_adj"] += float(tips or 0.0)
         return out
 
-    def _aggregate_per_day_shift(self, combined: dict):
+    def _aggregate_per_day_shift(self, distributions: list):
         """
         Return dict keyed by (date_iso, shift_upper) -> same value dict as above.
         shift_upper is 'MATIN' or 'SOIR' (normalize unknown shift to 'NA').
         """
         out = {}
-        for date_iso, shift, inputs, employees in self._iter_distributions(combined):
+        for date_iso, shift, inputs, employees in self._iter_distributions(distributions):
             ventes = to_float(inputs.get("Ventes Nettes", 0.0))
             hours = self._collect_service_hours(employees)
             tips = self._compute_adjusted_tips(inputs)
@@ -554,7 +564,7 @@ class AnalyseTab:
             rec["tips_adj"] += float(tips or 0.0)
         return out
 
-    def _aggregate_per_weekday(self, combined: dict):
+    def _aggregate_per_weekday(self, distributions: list):
         """
         Return dict keyed by weekday_name ("Monday".."Sunday") -> {
             'ventes_nettes': float,
@@ -567,7 +577,7 @@ class AnalyseTab:
         """
         from datetime import datetime
         out = {}
-        for date_iso, _shift, inputs, employees in self._iter_distributions(combined):
+        for date_iso, _shift, inputs, employees in self._iter_distributions(distributions):
             try:
                 dt = datetime.strptime(date_iso, "%Y-%m-%d")
                 weekday_name = dt.strftime("%A")
@@ -586,7 +596,7 @@ class AnalyseTab:
         return out
 
     # ----------------------- Summary table -----------------------
-    def _update_summary_table(self, combined: dict):
+    def _update_summary_table(self, distributions: list):
         """
         Compute totals for the whole period and split by shift (MATIN, SOIR).
         Fill the Treeview with three rows.
@@ -598,7 +608,7 @@ class AnalyseTab:
         except Exception:
             pass
 
-        if not isinstance(combined, dict):
+        if not isinstance(distributions, list):
             return
 
         totals = {
@@ -607,7 +617,7 @@ class AnalyseTab:
             "SOIR": {"ventes_nettes": 0.0, "service_hours": 0.0, "tips_adj": 0.0},
         }
 
-        for _date_iso, shift, inputs, employees in self._iter_distributions(combined):
+        for _date_iso, shift, inputs, employees in self._iter_distributions(distributions):
             ventes = to_float(inputs.get("Ventes Nettes", 0.0))
             hours = self._collect_service_hours(employees)
             tips = self._compute_adjusted_tips(inputs)
@@ -643,9 +653,9 @@ class AnalyseTab:
 
     # ----------------------- Weekday summary popup -----------------------
     def _open_weekday_summary_popup(self):
-        if not self.current_combined:
+        if not self.current_distributions:
             return
-        data = self._aggregate_per_weekday(self.current_combined)
+        data = self._aggregate_per_weekday(self.current_distributions)
 
         top = tk.Toplevel(self.frame)
         top.title("Résumé par jour de semaine")

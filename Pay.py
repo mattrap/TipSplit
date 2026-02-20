@@ -8,55 +8,63 @@
 #   * Badge shows which rule determined "Déclaré" (8% of A vs F for Service; D for Busboy)
 #   * Far-right header buttons: "Exporter tous (PDF)" and "Créer livret (PDF)"
 #
-# Storage model (JSONs are internal only):
-#   JSON_ROOT = AppConfig.get_backend_dir()
-#   - Daily distributions:  {JSON_ROOT}/daily/{pay_period}/confirmed/*.json
-#   - Pay summaries:        {JSON_ROOT}/pay/{pay_period}/combined.Json   (preferred)
-#   Back-compat fallback (legacy):
-#   - {app}/exports/pay/{pay_period}.Json
-#
-# PDFs are exported by Export.py to the user-chosen PDF folder (outside app),
-# never into the JSON backend.
+# Storage model (SQLite):
+# - Distributions and pay-period summaries are stored in the local database.
+# - PDFs are exported by Export.py to the user-chosen PDF folder.
 
 import os
-import json
 import re
 import ttkbootstrap as ttk
 from tkinter import StringVar, END, Listbox, Text, messagebox
 from ttkbootstrap.constants import *
 
-from AppConfig import get_backend_dir  # JSON_ROOT
+from db.distributions_repo import get_distributions_for_period, list_period_ids_with_distributions
+try:
+    from payroll.context import PayrollContext
+    from payroll.pay_calendar import PayCalendarService
+except Exception:
+    PayrollContext = None
+    PayCalendarService = None
 from ui_scale import scale
 from tree_utils import fit_columns
 
 class PayTab:
-    def __init__(self, master):
+    def __init__(self, master, shared_data=None):
         self.master = master
         self.frame = ttk.Frame(master)
-
-        # JSON backend root (internal, user shouldn't need to browse here)
-        self.json_root = get_backend_dir()
-        self.pay_root_new = os.path.join(self.json_root, "pay")
-
-        # Legacy fallback (read-only)
-        self.legacy_backend_root = "exports"
-        self.legacy_pay_dir = os.path.join(self.legacy_backend_root, "pay")
+        self.shared_data = shared_data or {}
+        self.payroll_context = self._resolve_payroll_context()
 
         # UI state
-        self.selected_period_var = StringVar()   # shows the period label (e.g., "2025-06-08 au 2025-06-21")
+        self.selected_period_var = StringVar()   # shows the period label
         self.current_period_label = None
-        self.current_payfile_path = None
+        self.current_period_id = None
 
-        # Data built from the selected combined file
+        # Data built from the selected period
         self.employees_index = {}
         self.employee_keys_sorted = []
 
-        # Discovered mapping: period_label -> absolute path to combined file
-        self._period_to_path = {}
+        # Discovered mapping: period_label -> period info
+        self._period_map = {}
 
         self._build_ui()
         self.refresh_pay_files()
         self.frame.pack(fill=BOTH, expand=True)
+
+    def _resolve_payroll_context(self):
+        try:
+            payroll = self.shared_data.get("payroll", {})
+            ctx = payroll.get("context")
+            if ctx:
+                return ctx
+        except Exception:
+            pass
+        if PayrollContext and PayCalendarService:
+            try:
+                return PayrollContext(PayCalendarService())
+            except Exception:
+                return None
+        return None
 
     # -----------------------
     # UI
@@ -69,7 +77,7 @@ class PayTab:
         left_box = ttk.Frame(header)
         left_box.pack(side=LEFT, fill=X, expand=True)
 
-        ttk.Label(left_box, text="Période (JSON interne):").pack(side=LEFT)
+        ttk.Label(left_box, text="Période:").pack(side=LEFT)
         self.pay_file_menu = ttk.Combobox(left_box, textvariable=self.selected_period_var, state="readonly", width=44)
         self.pay_file_menu.pack(side=LEFT, padx=6)
         self.pay_file_menu.bind("<<ComboboxSelected>>", self.on_period_select)
@@ -174,44 +182,32 @@ class PayTab:
     # Load combined files (new layout + legacy fallback)
     # -----------------------
     def refresh_pay_files(self):
-        self._period_to_path = {}
+        self._period_map = {}
+        period_ids = list_period_ids_with_distributions(status="CONFIRMED")
+        periods = []
+        for pid in period_ids:
+            info = {"id": pid}
+            if self.payroll_context:
+                try:
+                    info = self.payroll_context.get_period(pid)
+                except Exception:
+                    info = {"id": pid}
+            range_label = info.get("range_label")
+            label = range_label or info.get("display_id") or pid
+            periods.append((label, info))
 
-        # New preferred layout: {JSON_ROOT}/pay/{period}/combined.Json
-        try:
-            if os.path.isdir(self.pay_root_new):
-                for period in os.listdir(self.pay_root_new):
-                    pdir = os.path.join(self.pay_root_new, period)
-                    if not os.path.isdir(pdir):
-                        continue
-                    # Prefer 'combined.Json' if present; else any *.Json inside
-                    preferred = os.path.join(pdir, "combined.Json")
-                    if os.path.isfile(preferred):
-                        self._period_to_path[period] = preferred
-                    else:
-                        candidates = [f for f in os.listdir(pdir) if f.endswith(".Json")]
-                        if candidates:
-                            self._period_to_path[period] = os.path.join(pdir, sorted(candidates)[0])
-        except Exception:
-            pass
+        periods.sort(key=lambda item: item[1].get("start_at_utc", ""), reverse=True)
+        for label, info in periods:
+            self._period_map[label] = info
 
-        # Legacy fallback: exports/pay/{period}.Json (only if not found in new map)
-        try:
-            if os.path.isdir(self.legacy_pay_dir):
-                for name in os.listdir(self.legacy_pay_dir):
-                    if name.endswith(".Json"):
-                        period = os.path.splitext(name)[0]
-                        self._period_to_path.setdefault(period, os.path.join(self.legacy_pay_dir, name))
-        except Exception:
-            pass
-
-        periods = sorted(self._period_to_path.keys())
+        labels = [label for label, _ in periods]
         current = (self.selected_period_var.get() or "").strip()
 
-        self.pay_file_menu["values"] = periods
-        if current in periods:
+        self.pay_file_menu["values"] = labels
+        if current in self._period_map:
             self.selected_period_var.set(current)
-        elif periods:
-            self.selected_period_var.set(periods[0])
+        elif labels:
+            self.selected_period_var.set(labels[0])
         else:
             self.selected_period_var.set("")
 
@@ -223,26 +219,25 @@ class PayTab:
 
         label = (self.selected_period_var.get() or "").strip()
         if not label:
-            self.current_payfile_path = None
+            self.current_period_id = None
             self.current_period_label = None
             return
 
-        path = self._period_to_path.get(label)
-        if not path or not os.path.isfile(path):
-            messagebox.showerror("Erreur", f"Fichier combiné introuvable pour la période:\n{label}")
+        info = self._period_map.get(label)
+        if not info:
             return
-
-        self.current_payfile_path = path
+        self.current_period_id = info.get("id")
         self.current_period_label = label
-
         try:
-            with open(path, "r", encoding="utf-8") as f:
-                combined = json.load(f)
+            dists = get_distributions_for_period(
+                pay_period_id=self.current_period_id,
+                status="CONFIRMED",
+            )
         except Exception as e:
-            messagebox.showerror("Erreur", f"Impossible de lire le fichier combiné:\n{e}")
+            messagebox.showerror("Erreur", f"Impossible de lire les distributions:\n{e}")
             return
 
-        self._index_employees_with_shifts(combined)
+        self._index_employees_with_shifts(dists)
 
         self.employee_list.delete(0, END)
         for k in self.employee_keys_sorted:
@@ -252,48 +247,31 @@ class PayTab:
     # -----------------------
     # Indexing employees & shifts
     # -----------------------
-    def _index_employees_with_shifts(self, combined: dict):
+    def _index_employees_with_shifts(self, distributions: list):
         """
         employees_index[key] = {
             "id","name","role",
             "shifts":[{display_name,date,shift,hours,cash,sur_paye,frais_admin,A,B,D,E,F}],
             "totals": {"hours","cash","sur_paye","frais_admin","A_sum","F_sum","D_sum"}
         }
-        Accepts the structure created by JsonViewerTab or any tool that
-        writes a top-level {"distributions":[{"filename":..., "content":{...}}]} array.
         """
         self.employees_index.clear()
         self.employee_keys_sorted.clear()
 
-        dists = combined.get("distributions", [])
-        for item in dists:
-            if "error" in item:
-                continue
-            content = item.get("content", {})
-            if not isinstance(content, dict):
-                continue
-
-            # Prefer embedded meta; fallback to filename parsing
-            meta = content.get("meta", {})
-            date = safe_str(meta.get("date"))
-            shift = safe_str(meta.get("shift"))
-            fname_no_ext = os.path.splitext(item.get("filename", ""))[0]
-
-            if not date or not shift:
-                parsed_date, parsed_shift = _parse_date_shift_from_filename(fname_no_ext)
-                date = date or parsed_date
-                shift = shift or parsed_shift
-
-            employees = content.get("employees", [])
+        for dist in distributions:
+            date = safe_str(dist.get("date_iso") or dist.get("date_local"))
+            shift = safe_str(dist.get("shift"))
+            dist_ref = safe_str(dist.get("dist_ref"))
+            employees = dist.get("employees", [])
             if not isinstance(employees, list):
                 continue
 
             for emp in employees:
                 if not isinstance(emp, dict):
                     continue
-                emp_id = emp.get("employee_id")
-                name = safe_str(emp.get("name"))
-                role = safe_str(emp.get("role") or emp.get("section"))
+                emp_id = emp.get("employee_number")
+                name = safe_str(emp.get("employee_name"))
+                role = safe_str(emp.get("section"))
 
                 key = str(emp_id) if emp_id not in (None, "") else f"name::{name}"
                 if key not in self.employees_index:
@@ -324,7 +302,7 @@ class PayTab:
                 E_val = emp.get("E", "")
 
                 self.employees_index[key]["shifts"].append({
-                    "display_name": fname_no_ext,  # For the Date column
+                    "display_name": dist_ref or f"{date}-{shift}",
                     "date": date, "shift": shift,
                     "hours": hours, "cash": cash, "sur_paye": sur_paye,
                     "frais_admin": frais_admin,

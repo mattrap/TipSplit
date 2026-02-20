@@ -4,14 +4,14 @@ from reportlab.lib.pagesizes import letter, landscape
 from reportlab.pdfgen import canvas
 from tkinter import messagebox
 import os
-import json
 import subprocess
 import traceback
 import sys
 import platform
 from typing import Dict, List
-from AppConfig import get_pdf_dir, get_backend_dir
+from AppConfig import get_pdf_dir
 import time
+from db.distributions_repo import create_distribution
 
 # -------------------- Utility --------------------
 def get_unique_filename(base_path):
@@ -88,17 +88,6 @@ def _pdf_period_dir(category: str, period_info: dict) -> str:
     _ensure_dir(target)
     return target
 
-def _json_daily_period_dir(period_info: dict) -> str:
-    """
-    NEW STRUCTURE:
-      Daily distribution JSONs:
-        {JSON_ROOT}/daily/{pay_period}/unconfirmed/...
-    Where JSON_ROOT = get_backend_dir()
-    """
-    period_folder = _period_folder_from_info(period_info)
-    target = os.path.join(get_backend_dir(), "daily", period_folder, "unconfirmed")
-    _ensure_dir(target)
-    return target
 
 def _period_label_dates(period_info: dict) -> tuple[str, str]:
     info = period_info or {}
@@ -118,29 +107,6 @@ def _period_metadata(period_info: dict) -> dict:
     }
 
 # -------------- Logging helpers --------------
-def _log_dir() -> str:
-    """Ensure and return the backend logs directory."""
-    root = get_backend_dir()
-    path = os.path.join(root, "logs")
-    _ensure_dir(path)
-    return path
-
-def _append_distribution_log(record: dict):
-    """
-    Append a single JSON line capturing a distribution export snapshot.
-    Never raises: failures are swallowed to not block export.
-    """
-    try:
-        log_path = os.path.join(_log_dir(), "distribution_exports.log")
-        # Enrich with a server-side timestamp if not provided
-        record = dict(record or {})
-        record.setdefault("logged_at", time.strftime("%Y-%m-%dT%H:%M:%S"))
-        with open(log_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(record, ensure_ascii=False))
-            f.write("\n")
-    except Exception:
-        # Intentionally ignore logging failures
-        pass
 
 # helper
 def open_file_cross_platform(path):
@@ -335,12 +301,12 @@ def draw_declaration_body(c, y, entries_decl, height):
     return y
 
 # -------------------- Export Functions (Distribution+Declaration) --------------------
-def pdf_export(date, shift, period_info, fields, entries_dist, entries_decl, distribution_tab, decl_fields_raw, json_filename):
+def pdf_export(date, shift, period_info, fields, entries_dist, entries_decl, distribution_tab, decl_fields_raw, dist_ref):
     """
     Create a 2-page PDF:
       - Page 1: Distribution
       - Page 2: Declaration
-    The JSON filename that corresponds to this export is printed under the pay-period line on both pages.
+    The distribution reference is printed under the pay-period line on both pages.
     PDF is saved under: {PDF_ROOT}/Résumé de shift/{period}/...
     """
     pdf_dir = _pdf_period_dir("daily", period_info)
@@ -363,7 +329,7 @@ def pdf_export(date, shift, period_info, fields, entries_dist, entries_decl, dis
         c.drawString(50, y, "Période de paye: (inconnue)")
     y -= 18
     c.setFont("Helvetica-Oblique", 10)
-    c.drawString(50, y, f"Fichier JSON: {json_filename}")
+    c.drawString(50, y, f"Référence distribution: {dist_ref}")
     y -= 30
 
     y = draw_input_section(c, y, fields)
@@ -385,7 +351,7 @@ def pdf_export(date, shift, period_info, fields, entries_dist, entries_decl, dis
         c.drawString(50, y, "Période de paye: (inconnue)")
     y -= 18
     c.setFont("Helvetica-Oblique", 10)
-    c.drawString(50, y, f"Fichier JSON: {json_filename}")
+    c.drawString(50, y, f"Référence distribution: {dist_ref}")
     y -= 30
 
     decl_vals = distribution_tab.declaration_net_values()
@@ -398,17 +364,11 @@ def pdf_export(date, shift, period_info, fields, entries_dist, entries_decl, dis
     c.save()
     return final_pdf_path
 
-def json_export(date, shift, period_info, fields_sanitized, decl_fields_raw, entries_dist, entries_decl):
+def db_export(date, shift, period_info, fields_sanitized, decl_fields_raw, entries_dist, entries_decl, created_by: str = ""):
     """
-    Create the merged JSON for the distribution & declaration.
-    Returns (final_json_path, final_json_basename)
-    JSON is saved to the internal backend folder under the NEW structure:
-      {JSON_ROOT}/daily/{pay_period}/unconfirmed/{date}-{shift}_distribution.json
+    Persist the distribution & declaration into SQLite.
+    Returns (dist_id, dist_ref).
     """
-    json_dir = _json_daily_period_dir(period_info)
-    base_json_path = os.path.join(json_dir, f"{date}-{shift}_distribution.json")
-    final_json_path = get_unique_filename(base_json_path)
-
     # map distribution rows by (employee_id, name)
     dist_map = {}
     for e in entries_dist:
@@ -424,7 +384,7 @@ def json_export(date, shift, period_info, fields_sanitized, decl_fields_raw, ent
     merged_employees = []
     for e in entries_decl:
         if isinstance(e["name"], str) and e["name"].startswith("---"):
-            continue  # skip section headers in JSON
+            continue  # skip section headers
 
         key = (e["employee_id"], e["name"])
         base = dist_map.get(key, {})
@@ -440,7 +400,6 @@ def json_export(date, shift, period_info, fields_sanitized, decl_fields_raw, ent
             "frais_admin": base.get("frais_admin", 0.0),
         }
 
-        # Service: include A, B, E, F. Bussboy: include D only.
         def _num_or_zero(val):
             return 0.0 if val in ("", None) else float(val)
 
@@ -451,30 +410,26 @@ def json_export(date, shift, period_info, fields_sanitized, decl_fields_raw, ent
             emp["F"] = _num_or_zero(e.get("F"))
         elif section == "Bussboy":
             emp["D"] = _num_or_zero(e.get("D"))
-        # else: unknown section -> no extra declaration fields
 
         merged_employees.append(emp)
 
     decl_vals_out = {
-        "Ventes Totales": str(decl_fields_raw.get("Ventes Totales", "")),
-        "Clients": str(decl_fields_raw.get("Clients", "")),
-        "Tips due": str(decl_fields_raw.get("Tips due", "")),
-        "Ventes Nourriture": str(decl_fields_raw.get("Ventes Nourriture", "")),
+        "Ventes Totales": decl_fields_raw.get("Ventes Totales", ""),
+        "Clients": decl_fields_raw.get("Clients", ""),
+        "Tips due": decl_fields_raw.get("Tips due", ""),
+        "Ventes Nourriture": decl_fields_raw.get("Ventes Nourriture", ""),
     }
 
-    data = {
-        "date": date,
-        "shift": shift,
-        "pay_period": _period_metadata(period_info),
-        "inputs": fields_sanitized,          # distribution inputs
-        "declaration_inputs": decl_vals_out, # raw declaration inputs
-        "employees": merged_employees
-    }
-
-    with open(final_json_path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4, ensure_ascii=False)
-
-    return final_json_path, os.path.basename(final_json_path)
+    result = create_distribution(
+        pay_period_id=period_info.get("id"),
+        date_local=date,
+        shift=shift,
+        inputs=fields_sanitized,
+        declaration_inputs=decl_vals_out,
+        employees=merged_employees,
+        created_by=created_by or "",
+    )
+    return result["id"], result["dist_ref"]
 
 # ===================================================================== #
 #                     Employee Résumé + Booklet                         #
@@ -867,29 +822,15 @@ def export_distribution_from_tab(distribution_tab):
             messagebox.showerror("Période introuvable", "Impossible de déterminer la période de paye pour cette date.")
             return
 
-        # ---- Export JSON first to get its final filename (into backend DAILY) ----
-        json_path, json_filename = json_export(
-            date, shift, period_info, sanitized_inputs, raw_decl_inputs, entries_dist, entries_decl
+        dist_id, dist_ref = db_export(
+            date, shift, period_info, sanitized_inputs, raw_decl_inputs, entries_dist, entries_decl,
+            created_by=getattr(distribution_tab, "current_user", "")
         )
 
-        # ---- Append an audit log entry (append-only NDJSON) ----
-        _append_distribution_log({
-            "type": "distribution_export",
-            "date": date,
-            "shift": shift,
-            "pay_period": _period_metadata(period_info),
-            "json_path": json_path,
-            "json_filename": json_filename,
-            "inputs": raw_inputs,                  # raw text as seen in UI
-            "declaration_inputs": raw_decl_inputs, # raw text as seen in UI
-            "entries_distribution": entries_dist,
-            "entries_declaration": entries_decl,
-        })
-
-        # ---- Export PDF, including the JSON filename on each page (into chosen PDF folder under Résumé de shift) ----
+        # ---- Export PDF, including the distribution reference on each page (into chosen PDF folder under Résumé de shift) ----
         pdf_path = pdf_export(
             date, shift, period_info, raw_inputs, entries_dist, entries_decl,
-            distribution_tab, raw_decl_inputs, json_filename
+            distribution_tab, raw_decl_inputs, dist_ref
         )
 
         # Mark export success for progress UI (menu bar)
@@ -922,10 +863,6 @@ PDF DESTINATIONS (user-visible):
 - Booklet via make_booklet():
     {PDF_ROOT}/Paye/{pay_period}/{booklet_name}.pdf
 
-JSON DESTINATIONS (internal backend only):
-- Daily distributions:
-    {JSON_ROOT}/daily/{pay_period}/unconfirmed/{date}-{shift}_distribution.json
-
-- Combined/employee summary JSONs (created by JsonViewerTab “Créer fichier combiné”):
-    {JSON_ROOT}/pay/{pay_period}/{pay_period}.Json
+DB DESTINATION (internal only):
+- SQLite database (tipsplit.db) under the app data directory.
 '''

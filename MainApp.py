@@ -362,12 +362,12 @@ class TipSplitApp:
     def create_pay_tab(self):
         self.pay_frame = ttk.Frame(self.notebook)
         self.notebook.add(self.pay_frame, text="Pay")
-        self.pay_tab = PayTab(self.pay_frame)
+        self.pay_tab = PayTab(self.pay_frame, shared_data=self.shared_data)
 
     def create_analyse_tab(self):
         self.analyse_frame = ttk.Frame(self.notebook)
         self.notebook.add(self.analyse_frame, text="Analyse")
-        self.analyse_tab = AnalyseTab(self.analyse_frame)
+        self.analyse_tab = AnalyseTab(self.analyse_frame, shared_data=self.shared_data)
 
     def show_analyse_tab(self):
         if not hasattr(self, "analyse_tab"):
@@ -426,7 +426,7 @@ class TipSplitApp:
         if not hasattr(self, "json_viewer_tab"):
             from JsonViewerTab import JsonViewerTab
             self.json_viewer_frame = ttk.Frame(self.notebook)
-            self.json_viewer_tab = JsonViewerTab(self.json_viewer_frame)
+            self.json_viewer_tab = JsonViewerTab(self.json_viewer_frame, shared_data=self.shared_data)
             self.notebook.add(self.json_viewer_frame, text="Confirmer les distribution")
         elif str(self.json_viewer_frame) not in self.notebook.tabs():
             self.notebook.add(self.json_viewer_frame, text="Confrimer les distribution")
@@ -435,7 +435,7 @@ class TipSplitApp:
     def show_pay_tab(self):
         if not hasattr(self, "pay_tab"):
             self.pay_frame = ttk.Frame(self.notebook)
-            self.pay_tab = PayTab(self.pay_frame)
+            self.pay_tab = PayTab(self.pay_frame, shared_data=self.shared_data)
             self.notebook.add(self.pay_frame, text="Pay")
         elif str(self.pay_frame) not in self.notebook.tabs():
             self.notebook.add(self.pay_frame, text="Pay")
