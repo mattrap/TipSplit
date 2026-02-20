@@ -84,12 +84,13 @@ class PayrollContext:
         tzinfo = get_timezone(schedule["timezone"])
         start_local = to_local(from_utc_iso(row["start_at_utc"]), tzinfo)
         end_local = to_local(from_utc_iso(row["end_at_utc"]), tzinfo)
-        # Display end date inclusive by subtracting one second
-        display_end = end_local - timedelta(seconds=1)
+        # Pay periods are inclusive from Sunday to Saturday.
+        # Stored end_local is the next period's Sunday at 06:00, so display date is end_local - 1 day.
+        display_end_date = end_local.date() - timedelta(days=1)
         start_date_iso = start_local.date().isoformat()
-        end_date_iso = display_end.date().isoformat()
+        end_date_iso = display_end_date.isoformat()
         start_label = start_local.strftime("%d/%m/%Y")
-        end_label = display_end.strftime("%d/%m/%Y")
+        end_label = display_end_date.strftime("%d/%m/%Y")
         folder_slug = f"{row['display_id']}_{start_date_iso}_{end_date_iso}"
         return {
             **row,
