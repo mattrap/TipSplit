@@ -103,7 +103,7 @@ class JsonViewerTab:
         # Unconfirmed files
         unconf_frame = ttk.Frame(list_frame)
         unconf_frame.pack(side=LEFT, fill=BOTH, expand=True)
-        ttk.Label(unconf_frame, text="Nouveaux fichiers NON-vérifiés").pack(anchor=W)
+        ttk.Label(unconf_frame, text="Nouvelles distributions NON-vérifiés").pack(anchor=W)
         unconf_lb_frame = ttk.Frame(unconf_frame)
         unconf_lb_frame.pack(fill=X, pady=5)
         self.unconfirmed_listbox = Listbox(unconf_lb_frame, height=6)
@@ -167,7 +167,7 @@ class JsonViewerTab:
             bootstyle="secondary",
         ).pack(fill=X)
 
-        self.file_info_var = StringVar(value="Aucun fichier sélectionné")
+        self.file_info_var = StringVar(value="Aucune distribution sélectionné")
 
         ttk.Label(
             self.frame, textvariable=self.file_info_var, bootstyle="info"
@@ -309,7 +309,7 @@ class JsonViewerTab:
         self.unconfirmed_listbox.delete(0, END)
         self.confirmed_listbox.delete(0, END)
         self.clear_treeviews()
-        self.file_info_var.set("Aucun fichier sélectionné!")
+        self.file_info_var.set("Aucune distribution sélectionnée!")
         self.current_dist_id = None
         self.current_file_source = None
         self.delete_btn.config(state=DISABLED)
@@ -449,7 +449,7 @@ class JsonViewerTab:
         if not self.current_dist_id or self.current_file_source != "unconfirmed":
             messagebox.showwarning(
                 "Sélection requise",
-                "Veuillez sélectionner un fichier NON-vérifié à supprimer.",
+                "Veuillez sélectionner une distribution NON-vérifié à supprimer.",
             )
             return
         confirm = messagebox.askyesno(
@@ -463,7 +463,7 @@ class JsonViewerTab:
                 self.on_period_select(None)
                 self.current_dist_id = None
                 self.current_file_source = None
-                self.file_info_var.set("Aucun fichier sélectionné")
+                self.file_info_var.set("Aucune distribution sélectionnée")
                 self.clear_treeviews()
                 self.transfer_btn.config(state=DISABLED)
                 self.transfer_back_btn.config(state=DISABLED)
@@ -476,7 +476,7 @@ class JsonViewerTab:
         if not self.current_dist_id or self.current_file_source != "unconfirmed":
             messagebox.showwarning(
                 "Sélection requise",
-                "Veuillez sélectionner un fichier non-vérifié à confirmer.",
+                "Veuillez sélectionner une distribution NON-vérifiée à confirmer.",
             )
             return
         try:
@@ -485,7 +485,7 @@ class JsonViewerTab:
             self.on_period_select(None)
             self.current_dist_id = None
             self.current_file_source = None
-            self.file_info_var.set("Aucun fichier sélectionné")
+            self.file_info_var.set("Aucune distribution sélectionnée")
             self.clear_treeviews()
             self.transfer_btn.config(state=DISABLED)
             self.transfer_back_btn.config(state=DISABLED)
