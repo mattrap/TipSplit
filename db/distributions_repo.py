@@ -192,6 +192,23 @@ def list_period_ids_with_distributions(status: Optional[str] = None) -> List[str
     return [row["pay_period_id"] for row in rows]
 
 
+def list_period_ids_with_distributions_for_periods(period_ids: Iterable[str]) -> List[str]:
+    ids = [pid for pid in period_ids if pid]
+    if not ids:
+        return []
+    placeholders = ",".join("?" for _ in ids)
+    with db_session() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT DISTINCT pay_period_id
+            FROM distributions
+            WHERE pay_period_id IN ({placeholders})
+            """,
+            ids,
+        ).fetchall()
+    return [row["pay_period_id"] for row in rows]
+
+
 def list_distributions(
     *,
     pay_period_id: str,

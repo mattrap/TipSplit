@@ -7,6 +7,7 @@ from typing import Dict, List, Optional
 
 from payroll.pay_calendar import PayCalendarError, PayCalendarService
 from payroll.time_utils import ensure_local, from_utc_iso, get_timezone, to_local
+from db.distributions_repo import list_period_ids_with_distributions_for_periods
 
 
 class PayrollContext:
@@ -56,7 +57,19 @@ class PayrollContext:
     def list_periods(self, limit: int = 200, offset: int = 0) -> List[Dict]:
         schedule = self.get_schedule()
         rows = self.service.list_periods(schedule["id"], limit=limit, offset=offset)
-        return [self._format_period(schedule, row) for row in rows]
+        period_ids = [row.get("id") for row in rows if row.get("id")]
+        periods_with_data = set(list_period_ids_with_distributions_for_periods(period_ids))
+        formatted = []
+        for row in rows:
+            period = self._format_period(schedule, row)
+            has_data = period.get("id") in periods_with_data
+            period["has_data"] = has_data
+            if period.get("status") == "OPEN" and not has_data:
+                period["status_display"] = "EMPTY"
+            else:
+                period["status_display"] = period.get("status")
+            formatted.append(period)
+        return formatted
 
     def period_for_local_date(self, local_date: date) -> Dict:
         schedule = self.get_schedule()

@@ -348,7 +348,12 @@ class PayCalendarDialog(Toplevel):
                 "",
                 "end",
                 iid=row["id"],
-                values=(row["display_id"], row["range_label"], row["pay_date_local"], row["status"]),
+                values=(
+                    row["display_id"],
+                    row["range_label"],
+                    row["pay_date_local"],
+                    row.get("status_display") or row.get("status"),
+                ),
             )
         self.status_var.set(f"{len(rows)} périodes chargées")
         self._update_buttons()
