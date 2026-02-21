@@ -8,6 +8,7 @@ from tkinter.simpledialog import askstring
 
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
+from ttkbootstrap.widgets import DateEntry, Spinbox
 
 from payroll.pay_calendar import PayCalendarError
 from payroll.time_utils import get_timezone, parse_local_iso
@@ -56,38 +57,115 @@ class PayrollSettingsDialog(Toplevel):
             "timezone": StringVar(),
             "period_length_days": StringVar(),
             "pay_date_offset_days": StringVar(),
-            "anchor_start_local": StringVar(),
+            "anchor_date": StringVar(),
             "effective_from": StringVar(),
         }
+        self._date_format = "%Y-%m-%d"
+        self._common_timezones = [
+            "America/Montreal",
+            "America/Toronto",
+            "America/New_York",
+            "America/Chicago",
+            "America/Denver",
+            "America/Los_Angeles",
+            "UTC",
+        ]
+        self._initial_state = {}
+        self._dirty = False
+        self._apply_defaults()
         self._build_ui()
         self._load_current()
+        self._bind_changes()
         self.protocol("WM_DELETE_WINDOW", self._close)
+
+    def _apply_defaults(self):
+        today = date.today()
+        # Anchor defaults to the most recent Sunday (including today).
+        days_since_sunday = (today.weekday() + 1) % 7
+        anchor_date = (today - timedelta(days=days_since_sunday)).isoformat()
+        self.vars["name"].set("Horaire")
+        self.vars["timezone"].set("America/Montreal")
+        self.vars["period_length_days"].set("14")
+        self.vars["pay_date_offset_days"].set("4")
+        self.vars["anchor_date"].set(anchor_date)
+        self.vars["effective_from"].set(today.isoformat())
 
     def _build_ui(self):
         frame = ttk.Frame(self, padding=15)
         frame.grid(row=0, column=0, sticky=NSEW)
-        labels = [
-            ("Nom", "name"),
-            ("Fuseau horaire", "timezone"),
-            ("Durée de période (jours)", "period_length_days"),
-            ("Décalage Paye (jours)", "pay_date_offset_days"),
-            ("Ancre (AAAA-MM-JJTHH:MM)", "anchor_start_local"),
-            ("Entrée en vigueur (AAAA-MM-JJ)", "effective_from"),
-        ]
-        for idx, (label, key) in enumerate(labels):
-            ttk.Label(frame, text=label).grid(row=idx, column=0, sticky=W, pady=4)
-            entry = ttk.Entry(frame, textvariable=self.vars[key], width=32)
-            entry.grid(row=idx, column=1, sticky=W, pady=4)
+        ttk.Label(frame, text="Nom").grid(row=0, column=0, sticky=W, pady=4)
+        ttk.Entry(frame, textvariable=self.vars["name"], width=32).grid(row=0, column=1, sticky=W, pady=4)
+
+        ttk.Label(frame, text="Fuseau horaire").grid(row=1, column=0, sticky=W, pady=4)
+        self.tz_combo = ttk.Combobox(
+            frame,
+            textvariable=self.vars["timezone"],
+            values=self._common_timezones,
+            state="readonly",
+            width=29,
+        )
+        self.tz_combo.grid(row=1, column=1, sticky=W, pady=4)
+
+        ttk.Label(frame, text="Durée de période (jours)").grid(row=2, column=0, sticky=W, pady=4)
+        self.period_length_spin = Spinbox(
+            frame,
+            from_=7,
+            to=31,
+            increment=1,
+            width=8,
+            justify="center",
+            textvariable=self.vars["period_length_days"],
+        )
+        self.period_length_spin.grid(row=2, column=1, sticky=W, pady=4)
+
+        ttk.Label(frame, text="Décalage Paye (jours)").grid(row=3, column=0, sticky=W, pady=4)
+        self.pay_offset_spin = Spinbox(
+            frame,
+            from_=0,
+            to=30,
+            increment=1,
+            width=8,
+            justify="center",
+            textvariable=self.vars["pay_date_offset_days"],
+        )
+        self.pay_offset_spin.grid(row=3, column=1, sticky=W, pady=4)
+
+        ttk.Label(frame, text="Ancre (dimanche)").grid(row=4, column=0, sticky=W, pady=4)
+        anchor_row = ttk.Frame(frame)
+        anchor_row.grid(row=4, column=1, sticky=W, pady=4)
+        self.anchor_date_picker = DateEntry(
+            anchor_row,
+            bootstyle="primary",
+            dateformat=self._date_format,
+            width=14,
+        )
+        self.anchor_date_picker.entry.configure(textvariable=self.vars["anchor_date"])
+        self.anchor_date_picker.entry.bind("<Key>", lambda e: "break")
+        self.anchor_date_picker.pack(side=LEFT)
+        ttk.Label(anchor_row, text="à 06:00").pack(side=LEFT, padx=(6, 0))
+
+        ttk.Label(frame, text="Entrée en vigueur").grid(row=5, column=0, sticky=W, pady=4)
+        self.effective_date_picker = DateEntry(
+            frame,
+            bootstyle="primary",
+            dateformat=self._date_format,
+            width=14,
+        )
+        self.effective_date_picker.entry.configure(textvariable=self.vars["effective_from"])
+        self.effective_date_picker.entry.bind("<Key>", lambda e: "break")
+        self.effective_date_picker.grid(row=5, column=1, sticky=W, pady=4)
+
         ttk.Label(
             frame,
-            text="L'ancre doit être un dimanche 06:00. Le nouvel horaire ne modifie pas les périodes passées.",
+            text="L'ancre est fixe à 06:00 le dimanche. Le nouvel horaire ne modifie pas les périodes passées.",
             wraplength=360,
             bootstyle="secondary",
-        ).grid(row=len(labels), column=0, columnspan=2, pady=(6, 12), sticky=W)
+        ).grid(row=6, column=0, columnspan=2, pady=(6, 12), sticky=W)
         btns = ttk.Frame(frame)
-        btns.grid(row=len(labels) + 1, column=0, columnspan=2, sticky=E)
+        btns.grid(row=7, column=0, columnspan=2, sticky=E)
         ttk.Button(btns, text="Annuler", command=self._close, bootstyle="secondary").pack(side=RIGHT, padx=4)
-        ttk.Button(btns, text="Enregistrer", command=self._save, bootstyle="success").pack(side=RIGHT, padx=4)
+        self.save_btn = ttk.Button(btns, text="Enregistrer", command=self._save, bootstyle="success")
+        self.save_btn.pack(side=RIGHT, padx=4)
 
     def _load_current(self):
         context = self.app.get_payroll_context()
@@ -98,18 +176,47 @@ class PayrollSettingsDialog(Toplevel):
             except PayCalendarError:
                 schedule = None
         if not schedule:
-            messagebox.showerror("Paie", "Horaire actif introuvable.")
-            self.after(10, self._close)
+            messagebox.showerror("Paie", "Horaire actif introuvable. Valeurs par défaut affichées.")
+            self._capture_initial_state()
+            self._set_dirty(False)
             return
         self.vars["name"].set(schedule.get("name", "Horaire"))
-        self.vars["timezone"].set(schedule.get("timezone", "America/Montreal"))
+        tz_value = schedule.get("timezone", "America/Montreal")
+        if tz_value not in self._common_timezones:
+            self._common_timezones.insert(0, tz_value)
+            self.tz_combo.configure(values=self._common_timezones)
+        self.vars["timezone"].set(tz_value)
         self.vars["period_length_days"].set(str(schedule.get("period_length_days", 14)))
         self.vars["pay_date_offset_days"].set(str(schedule.get("pay_date_offset_days", 4)))
-        self.vars["anchor_start_local"].set(schedule.get("anchor_start_local", ""))
+        anchor_raw = schedule.get("anchor_start_local", "")
+        anchor_date = anchor_raw.split("T")[0] if anchor_raw else ""
+        self.vars["anchor_date"].set(anchor_date)
         today = date.today().isoformat()
         self.vars["effective_from"].set(today)
+        self._capture_initial_state()
+        self._set_dirty(False)
+
+    def _bind_changes(self):
+        for var in self.vars.values():
+            var.trace_add("write", lambda *_: self._on_change())
+
+    def _capture_initial_state(self):
+        self._initial_state = {key: var.get() for key, var in self.vars.items()}
+
+    def _set_dirty(self, value: bool):
+        self._dirty = value
+        if hasattr(self, "save_btn"):
+            self.save_btn.configure(state=NORMAL if self._dirty else DISABLED)
+
+    def _on_change(self):
+        current = {key: var.get() for key, var in self.vars.items()}
+        self._set_dirty(current != self._initial_state)
 
     def _save(self):
+        if not self._dirty:
+            return
+        if not messagebox.askyesno("Confirmer", "Enregistrer les modifications de l'horaire de paie?"):
+            return
         schedule = self.app.get_payroll_context()
         if not schedule:
             messagebox.showerror("Paie", "Horaire impossible à récupérer.")
@@ -130,7 +237,8 @@ class PayrollSettingsDialog(Toplevel):
         except ValueError:
             messagebox.showerror("Décalage", "Décalage invalide")
             return
-        anchor_str = self.vars["anchor_start_local"].get().strip()
+        anchor_date_str = self.vars["anchor_date"].get().strip()
+        anchor_str = f"{anchor_date_str}T06:00"
         eff_str = self.vars["effective_from"].get().strip()
         try:
             eff_date = date.fromisoformat(eff_str)
@@ -171,6 +279,8 @@ class PayrollSettingsDialog(Toplevel):
             self.app.payroll_context.set_schedule(new_schedule)
             self.app.refresh_payroll_context()
         messagebox.showinfo("Paramètres", "Nouvel horaire créé. Les périodes futures seront générées automatiquement.")
+        self._capture_initial_state()
+        self._set_dirty(False)
         self._close()
 
     def _close(self):
