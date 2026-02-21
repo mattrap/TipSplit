@@ -10,7 +10,6 @@ from Master import MasterSheet
 from TimeSheet import TimeSheet
 from Distribution import DistributionTab
 from AnalyseTab import AnalyseTab
-from tkinter.simpledialog import askstring
 from tkinter import messagebox
 from Pay import PayTab
 from AppConfig import ensure_pdf_dir_selected, get_user_data_dir
@@ -386,10 +385,9 @@ class TipSplitApp:
             messagebox.showerror("Erreur", "Identité de l'utilisateur introuvable.")
             return False
 
-        password = askstring(
+        password = self._prompt_password(
             "🔒 Accès restreint",
             "Entrez le mot de passe de votre compte :",
-            show="*",
         )
         if password is None:
             return False
@@ -411,6 +409,61 @@ class TipSplitApp:
         if hasattr(self, "role_var"):
             self.role_var.set(f"Role: {self.user_role}")
         return True
+
+    def _prompt_password(self, title: str, prompt: str):
+        dialog = ttk.Toplevel(self.root)
+        dialog.title(title)
+        dialog.resizable(False, False)
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        frame = ttk.Frame(dialog, padding=15)
+        frame.grid(row=0, column=0, sticky=NSEW)
+        frame.columnconfigure(0, weight=1)
+
+        ttk.Label(frame, text=prompt).grid(row=0, column=0, sticky=W)
+
+        value_var = tk.StringVar()
+        entry = ttk.Entry(frame, textvariable=value_var, show="*", width=36)
+        entry.grid(row=1, column=0, sticky=EW, pady=(6, 12))
+
+        btns = ttk.Frame(frame)
+        btns.grid(row=2, column=0, sticky=EW)
+        btns.columnconfigure(0, weight=1, uniform="auth-btn")
+        btns.columnconfigure(1, weight=1, uniform="auth-btn")
+
+        result = {"value": None}
+
+        def on_ok():
+            result["value"] = value_var.get()
+            dialog.destroy()
+
+        def on_cancel():
+            dialog.destroy()
+
+        ok_btn = ttk.Button(btns, text="OK", bootstyle="primary", command=on_ok)
+        cancel_btn = ttk.Button(btns, text="Annuler", bootstyle="danger", command=on_cancel)
+        ok_btn.grid(row=0, column=0, sticky=EW, padx=(0, 8))
+        cancel_btn.grid(row=0, column=1, sticky=EW)
+
+        dialog.bind("<Return>", lambda _event: on_ok())
+        dialog.bind("<Escape>", lambda _event: on_cancel())
+        dialog.protocol("WM_DELETE_WINDOW", on_cancel)
+
+        dialog.update_idletasks()
+        parent_x = self.root.winfo_rootx()
+        parent_y = self.root.winfo_rooty()
+        parent_w = self.root.winfo_width()
+        parent_h = self.root.winfo_height()
+        dlg_w = dialog.winfo_width()
+        dlg_h = dialog.winfo_height()
+        x = parent_x + max(0, (parent_w - dlg_w) // 2)
+        y = parent_y + max(0, (parent_h - dlg_h) // 2)
+        dialog.geometry(f"+{x}+{y}")
+
+        entry.focus_set()
+        dialog.wait_window()
+        return result["value"]
 
     def authenticate_and_show_master(self):
         if not self.require_manager_password("accéder à la feuille maître"):

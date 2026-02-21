@@ -2,7 +2,7 @@ import re
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 import tkinter as tk
-from tkinter import Listbox, END, BROWSE
+from tkinter import Listbox, END, BROWSE, filedialog, messagebox
 
 from ui_scale import scale
 from db.distributions_repo import get_distributions_for_period, list_period_ids_with_distributions
@@ -78,18 +78,18 @@ class AnalyseTab:
 
     # ----------------------- UI -----------------------
     def _build_ui(self):
-        # Header with refresh
-        header = ttk.Frame(self.frame)
-        header.pack(fill=X, padx=10, pady=(10, 6))
+        # Main layout: vertical paned window to resize chart vs summary
+        main_v = ttk.Panedwindow(self.frame, orient=VERTICAL)
+        main_v.pack(fill=BOTH, expand=True, padx=10, pady=(10, 10))
+        self._main_v = main_v
+        self._min_top = scale(360)
+        self._min_bottom = scale(180)
+        top_area = ttk.Frame(main_v)
+        main_v.add(top_area, weight=3)
 
-        left_box = ttk.Frame(header)
-        left_box.pack(side=LEFT, fill=X, expand=True)
-        ttk.Label(left_box, text="Sélectionnez une période de paye").pack(side=LEFT)
-        ttk.Button(left_box, text="Rafraîchir", command=self.refresh_periods).pack(side=LEFT, padx=6)
-
-        # Main layout: left list, right content with two stacked chart areas
-        paned = ttk.Panedwindow(self.frame, orient=HORIZONTAL)
-        paned.pack(fill=BOTH, expand=True, padx=10, pady=(0, 10))
+        # Left list + right chart area
+        paned = ttk.Panedwindow(top_area, orient=HORIZONTAL)
+        paned.pack(fill=BOTH, expand=True)
 
         # Left list (single-select)
         left = ttk.Frame(paned, width=scale(260))
@@ -115,25 +115,47 @@ class AnalyseTab:
         # Controls above canvas
         controls = ttk.Frame(chart_group)
         controls.pack(fill=X, padx=6, pady=(6, 0))
-        ttk.Label(controls, text="Regrouper:").pack(side=LEFT)
-        ttk.Radiobutton(controls, text="Par jour", variable=self.agg_mode, value="day", command=self.update_chart).pack(side=LEFT, padx=(6, 0))
-        ttk.Radiobutton(controls, text="Par jour de la semaine", variable=self.agg_mode, value="weekday", command=self.update_chart).pack(side=LEFT, padx=(6, 0))
-        ttk.Radiobutton(controls, text="Par shift", variable=self.agg_mode, value="day_shift", command=self.update_chart).pack(side=LEFT, padx=(6, 0))
-        ttk.Label(controls, text="  |  Metric:").pack(side=LEFT, padx=(10, 0))
-        self.metric_combo = ttk.Combobox(controls, textvariable=self.metric_choice, width=28, state="readonly",
-                                         values=["Ventes Nettes", "Ventes / heure Service", "Tip %"])
-        self.metric_combo.pack(side=LEFT, padx=(6, 0))
-        self.metric_combo.bind("<<ComboboxSelected>>", lambda e: self.update_chart())
+        controls.columnconfigure(0, weight=1)
+        controls.columnconfigure(1, weight=1)
 
+        left_controls = ttk.Frame(controls)
+        left_controls.grid(row=0, column=0, sticky=W)
+        ttk.Label(left_controls, text="Regrouper:").pack(side=LEFT)
+        ttk.Radiobutton(left_controls, text="Par jour", variable=self.agg_mode, value="day", command=self.update_chart).pack(side=LEFT, padx=(6, 0))
+        ttk.Radiobutton(left_controls, text="Par jour de la semaine", variable=self.agg_mode, value="weekday", command=self.update_chart).pack(side=LEFT, padx=(6, 0))
+        ttk.Radiobutton(left_controls, text="Par distribution", variable=self.agg_mode, value="distribution", command=self.update_chart).pack(side=LEFT, padx=(6, 0))
+        ttk.Radiobutton(left_controls, text="Par shift", variable=self.agg_mode, value="day_shift", command=self.update_chart).pack(side=LEFT, padx=(6, 0))
+
+        right_controls = ttk.Frame(controls)
+        right_controls.grid(row=0, column=1, sticky=EW, padx=(10, 0))
+        right_controls.columnconfigure(1, weight=2)
+        right_controls.columnconfigure(2, weight=1)
+        ttk.Label(right_controls, text="Metric:").grid(row=0, column=0, sticky=W)
+        self.metric_combo = ttk.Combobox(
+            right_controls,
+            textvariable=self.metric_choice,
+            state="readonly",
+            values=["Ventes Nettes", "Ventes / heure Service", "Tip %"],
+        )
+        self.metric_combo.grid(row=0, column=1, sticky=EW, padx=(6, 6))
+        self.metric_combo.bind("<<ComboboxSelected>>", lambda e: self.update_chart())
+        self.export_btn = ttk.Button(
+            right_controls,
+            text="Exporter",
+            command=self._export_current_view,
+        )
+        self.export_btn.grid(row=0, column=2, sticky=EW)
         self.chart_canvas = tk.Canvas(chart_group, height=scale(420), background="#fafafa", highlightthickness=0)
         self.chart_canvas.pack(fill=BOTH, expand=True, padx=6, pady=6)
+        self._chart_resize_job = None
+        self.chart_canvas.bind("<Configure>", self._on_chart_resize)
 
         # Initial placeholder
         self._draw_placeholder(self.chart_canvas, "Sélectionnez une période à analyser…")
 
-        # Summary table below chart
-        summary_group = ttk.LabelFrame(right, text="Résumé — Période sélectionnée")
-        summary_group.pack(fill=X, expand=False, padx=0, pady=(0, 10))
+        # Summary table below chart (resizable)
+        summary_group = ttk.LabelFrame(main_v, text="Résumé — Période sélectionnée")
+        main_v.add(summary_group, weight=1)
         cols = [
             "Scope",
             "Ventes Nettes",
@@ -142,18 +164,28 @@ class AnalyseTab:
             "Pourboires (ajustés)",
             "Tip %",
         ]
-        # Summary controls (weekday summary popup)
-        summary_controls = ttk.Frame(summary_group)
-        summary_controls.pack(fill=X, padx=6, pady=(6, 0))
-        ttk.Button(summary_controls, text="Résumé par jour de semaine", command=self._open_weekday_summary_popup).pack(side=LEFT)
-
         self.summary_tree = ttk.Treeview(summary_group, columns=cols, show="headings", height=3)
         for c in cols:
             anchor = tk.W if c == "Scope" else tk.E
             width = 160 if c == "Scope" else 140
             self.summary_tree.heading(c, text=c)
             self.summary_tree.column(c, width=scale(width), anchor=anchor, stretch=True)
-        self.summary_tree.pack(fill=X, padx=6, pady=6)
+        self.summary_tree.pack(fill=BOTH, expand=True, padx=6, pady=6)
+
+        # Default split: roughly 70% chart area / 30% summary area
+        def _set_default_split():
+            try:
+                total = main_v.winfo_height()
+                if total <= 1:
+                    return
+                main_v.sash_place(0, 0, int(total * 0.70))
+            except Exception:
+                pass
+
+        self.frame.after(0, _set_default_split)
+        main_v.bind("<Configure>", self._enforce_pane_mins)
+        main_v.bind("<B1-Motion>", self._enforce_pane_mins)
+        main_v.bind("<ButtonRelease-1>", self._enforce_pane_mins)
 
     # ----------------------- Data discovery -----------------------
     def refresh_periods(self):
@@ -168,7 +200,13 @@ class AnalyseTab:
                 except Exception:
                     info = {"id": pid}
             range_label = info.get("range_label")
-            label = range_label or info.get("display_id") or pid
+            display_id = info.get("display_id") or pid
+            if range_label and display_id:
+                label = f"({display_id}) {range_label}"
+            elif display_id:
+                label = f"({display_id})"
+            else:
+                label = pid
             periods.append((label, info))
 
         periods.sort(key=lambda item: item[1].get("start_at_utc", ""), reverse=True)
@@ -250,7 +288,16 @@ class AnalyseTab:
         if not self.current_distributions or not self.current_period_label:
             self._draw_placeholder(c, "Sélectionnez une période à analyser…")
             return
+        x_labels, values, y_suffix = self._build_chart_series()
+        if not x_labels:
+            self._draw_placeholder(c, "Aucune donnée à afficher")
+            return
+        self._draw_bars(x_labels, values, y_suffix=y_suffix)
 
+        # Keep summary synchronized with any toggle change
+        self._update_summary_table(self.current_distributions)
+
+    def _build_chart_series(self):
         metric_key = {
             "Ventes Nettes": "ventes_nettes",
             "Ventes / heure Service": "ventes_per_hr_service",
@@ -286,9 +333,9 @@ class AnalyseTab:
                     x_labels.append(dt.strftime("%m-%d"))
                     values.append(val)
             y_suffix = "%" if metric_key == "tip_pct" else None
-            self._draw_bars(x_labels, values, y_suffix=y_suffix)
-        elif agg_mode == "weekday":
-            # Aggregate per weekday and plot Monday -> Sunday
+            return x_labels, values, y_suffix
+
+        if agg_mode == "weekday":
             data = self._aggregate_per_weekday(self.current_distributions)
             weekdays_order = [
                 "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"
@@ -299,13 +346,19 @@ class AnalyseTab:
                 rec = data.get(name, {"ventes_nettes": 0.0, "service_hours": 0.0, "tips_adj": 0.0})
                 values.append(self._metric_from_record(rec, metric_key))
             y_suffix = "%" if metric_key == "tip_pct" else None
-            self._draw_bars(x_labels, values, y_suffix=y_suffix)
-        else:
-            data = self._aggregate_per_day_shift(self.current_distributions)
-            # Build labels by available keys sorted by date then shift order
+            return x_labels, values, y_suffix
+
+        if agg_mode == "distribution":
+            rows = []
+            for date_iso, shift, inputs, employees in self._iter_distributions(self.current_distributions):
+                ventes = to_float(inputs.get("Ventes Nettes", 0.0))
+                hours = self._collect_service_hours(employees)
+                tips = self._compute_adjusted_tips(inputs)
+                rows.append((date_iso, shift, {"ventes_nettes": ventes, "service_hours": hours, "tips_adj": tips}))
+
             from datetime import datetime
             def sort_key(item):
-                (date_iso, shift) = item[0]
+                date_iso, shift, _rec = item
                 try:
                     dt = datetime.strptime(date_iso, "%Y-%m-%d")
                 except Exception:
@@ -313,9 +366,9 @@ class AnalyseTab:
                 order = {"MATIN": 0, "SOIR": 1, "NA": 2}.get(shift, 2)
                 return (dt.toordinal() if dt else 0, order)
 
-            items = sorted(data.items(), key=sort_key)
+            rows.sort(key=sort_key)
             x_labels, values = [], []
-            for (date_iso, shift), rec in items:
+            for date_iso, shift, rec in rows:
                 try:
                     dt = datetime.strptime(date_iso, "%Y-%m-%d")
                     base = dt.strftime("%m-%d")
@@ -325,13 +378,55 @@ class AnalyseTab:
                 x_labels.append(f"{base} {suffix}")
                 values.append(self._metric_from_record(rec, metric_key))
             y_suffix = "%" if metric_key == "tip_pct" else None
-            if not x_labels:
-                self._draw_placeholder(c, "Aucune donnée pour ce mode")
-                return
-            self._draw_bars(x_labels, values, y_suffix=y_suffix)
+            return x_labels, values, y_suffix
 
-        # Keep summary synchronized with any toggle change
-        self._update_summary_table(self.current_distributions)
+        data = self._aggregate_per_shift(self.current_distributions)
+        x_labels, values = [], []
+        for shift in ("MATIN", "SOIR"):
+            rec = data.get(shift, {"ventes_nettes": 0.0, "service_hours": 0.0, "tips_adj": 0.0})
+            x_labels.append(shift)
+            values.append(self._metric_from_record(rec, metric_key))
+        y_suffix = "%" if metric_key == "tip_pct" else None
+        return x_labels, values, y_suffix
+
+    def _export_current_view(self):
+        if not self.current_distributions or not self.current_period_label:
+            messagebox.showwarning("Export", "Aucune période sélectionnée.")
+            return
+
+        period_info = self.current_period or {}
+        period_id = period_info.get("display_id") or period_info.get("id") or "periode"
+        safe_id = re.sub(r"[^A-Za-z0-9_-]+", "_", str(period_id))
+        default_name = f"analyse_{safe_id}.csv"
+        path = filedialog.asksaveasfilename(
+            defaultextension=".csv",
+            filetypes=[("Excel (CSV)", "*.csv")],
+            initialfile=default_name,
+            title="Exporter l'analyse",
+        )
+        if not path:
+            return
+
+        x_labels, values, y_suffix = self._build_chart_series()
+        metric_label = self.metric_choice.get() or "Metric"
+        try:
+            import csv
+            with open(path, "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                writer.writerow(["Graphique"])
+                writer.writerow(["Label", metric_label])
+                for label, val in zip(x_labels, values):
+                    writer.writerow([label, val])
+                writer.writerow([])
+                writer.writerow(["Résumé"])
+                headers = [self.summary_tree.heading(col, "text") for col in self.summary_tree["columns"]]
+                writer.writerow(headers)
+                for iid in self.summary_tree.get_children():
+                    writer.writerow(list(self.summary_tree.item(iid, "values")))
+        except Exception as exc:
+            messagebox.showerror("Export", f"Échec de l'export:\n{exc}")
+            return
+        messagebox.showinfo("Export", f"Export terminé:\n{path}")
 
     def _metric_from_record(self, rec: dict, metric_key: str) -> float:
         ventes = float(rec.get("ventes_nettes", 0.0) or 0.0)
@@ -412,6 +507,42 @@ class AnalyseTab:
         c.create_text(left - 10, h - bottom, text="0" + ("%" if y_suffix == "%" else ""), anchor=E, font=("Helvetica", 9))
         c.create_text(left - 10, top, text=y_max_label, anchor=E, font=("Helvetica", 9))
 
+    def _on_chart_resize(self, _event=None):
+        if self._chart_resize_job:
+            try:
+                self.chart_canvas.after_cancel(self._chart_resize_job)
+            except Exception:
+                pass
+        # debounce resize to avoid excessive redraws
+        self._chart_resize_job = self.chart_canvas.after(50, self._redraw_chart_for_resize)
+
+    def _redraw_chart_for_resize(self):
+        self._chart_resize_job = None
+        if not self.current_distributions or not self.current_period_label:
+            self._draw_placeholder(self.chart_canvas, "Sélectionnez une période à analyser…")
+            return
+        self.update_chart()
+
+    def _enforce_pane_mins(self, _event=None):
+        """Clamp the vertical sash so both panes keep a minimum height."""
+        main_v = getattr(self, "_main_v", None)
+        if not main_v:
+            return
+        try:
+            total = main_v.winfo_height()
+            if total <= 1:
+                return
+            min_top = int(self._min_top)
+            min_bottom = int(self._min_bottom)
+            max_top = max(min_top, total - min_bottom)
+            cur = main_v.sashpos(0)
+            if cur < min_top:
+                main_v.sashpos(0, min_top)
+            elif cur > max_top:
+                main_v.sashpos(0, max_top)
+        except Exception:
+            pass
+
     # ----------------------- Date parsing helpers -----------------------
     def _parse_date_shift_from_filename(self, filename: str):
         try:
@@ -440,9 +571,10 @@ class AnalyseTab:
         return None
 
     def _parse_period_bounds(self, label: str):
-        """Parse period label to (start_dt, end_dt). Accepts 'YYYY-MM-DD_au_YYYY-MM-DD' or 'YYYY-MM-DD au YYYY-MM-DD'."""
+        """Parse period label to (start_dt, end_dt)."""
         from datetime import datetime
         try:
+            label = re.sub(r"^\([^)]*\)\s*", "", label or "")
             if "_au_" in label:
                 a, b = label.split("_au_", 1)
             elif " au " in label:
@@ -456,8 +588,20 @@ class AnalyseTab:
             # Normalize possible slashes
             a = a.replace("/", "-")
             b = b.replace("/", "-")
-            start = datetime.strptime(a, "%Y-%m-%d")
-            end = datetime.strptime(b, "%Y-%m-%d")
+            for fmt in ("%Y-%m-%d", "%d-%m-%Y"):
+                try:
+                    start = datetime.strptime(a, fmt)
+                    break
+                except Exception:
+                    start = None
+            for fmt in ("%Y-%m-%d", "%d-%m-%Y"):
+                try:
+                    end = datetime.strptime(b, fmt)
+                    break
+                except Exception:
+                    end = None
+            if not start or not end:
+                return None, None
             return start, end
         except Exception:
             return None, None
@@ -597,10 +741,7 @@ class AnalyseTab:
 
     # ----------------------- Summary table -----------------------
     def _update_summary_table(self, distributions: list):
-        """
-        Compute totals for the whole period and split by shift (MATIN, SOIR).
-        Fill the Treeview with three rows.
-        """
+        """Update summary table using the same scope as the chart."""
         # Clear existing
         try:
             for iid in self.summary_tree.get_children():
@@ -610,23 +751,6 @@ class AnalyseTab:
 
         if not isinstance(distributions, list):
             return
-
-        totals = {
-            "ALL": {"ventes_nettes": 0.0, "service_hours": 0.0, "tips_adj": 0.0},
-            "MATIN": {"ventes_nettes": 0.0, "service_hours": 0.0, "tips_adj": 0.0},
-            "SOIR": {"ventes_nettes": 0.0, "service_hours": 0.0, "tips_adj": 0.0},
-        }
-
-        for _date_iso, shift, inputs, employees in self._iter_distributions(distributions):
-            ventes = to_float(inputs.get("Ventes Nettes", 0.0))
-            hours = self._collect_service_hours(employees)
-            tips = self._compute_adjusted_tips(inputs)
-            for bucket in ("ALL", shift if shift in ("MATIN", "SOIR") else None):
-                if not bucket:
-                    continue
-                totals[bucket]["ventes_nettes"] += float(ventes or 0.0)
-                totals[bucket]["service_hours"] += float(hours or 0.0)
-                totals[bucket]["tips_adj"] += float(tips or 0.0)
 
         def fmt_row(scope, rec):
             ventes = float(rec.get("ventes_nettes", 0.0) or 0.0)
@@ -643,13 +767,109 @@ class AnalyseTab:
                 f"{tip_pct*100:.1f}%",
             ]
 
-        rows = [
-            fmt_row("Total (Période)", totals["ALL"]),
-            fmt_row("MATIN", totals["MATIN"]),
-            fmt_row("SOIR", totals["SOIR"]),
-        ]
-        for r in rows:
-            self.summary_tree.insert("", END, values=r)
+        agg_mode = self.agg_mode.get()
+        if agg_mode == "weekday":
+            data = self._aggregate_per_weekday(distributions)
+            weekdays_order = [
+                ("Monday", "Lundi"),
+                ("Tuesday", "Mardi"),
+                ("Wednesday", "Mercredi"),
+                ("Thursday", "Jeudi"),
+                ("Friday", "Vendredi"),
+                ("Saturday", "Samedi"),
+                ("Sunday", "Dimanche"),
+            ]
+            total = {"ventes_nettes": 0.0, "service_hours": 0.0, "tips_adj": 0.0}
+            for rec in data.values():
+                total["ventes_nettes"] += float(rec.get("ventes_nettes", 0.0) or 0.0)
+                total["service_hours"] += float(rec.get("service_hours", 0.0) or 0.0)
+                total["tips_adj"] += float(rec.get("tips_adj", 0.0) or 0.0)
+            self.summary_tree.insert("", END, values=fmt_row("Total (Période)", total))
+            for eng, fr in weekdays_order:
+                rec = data.get(eng)
+                if not rec:
+                    continue
+                self.summary_tree.insert("", END, values=fmt_row(fr, rec))
+            return
+
+        if agg_mode == "day":
+            data = self._aggregate_per_day(distributions)
+            from datetime import datetime
+            total = {"ventes_nettes": 0.0, "service_hours": 0.0, "tips_adj": 0.0}
+            for rec in data.values():
+                total["ventes_nettes"] += float(rec.get("ventes_nettes", 0.0) or 0.0)
+                total["service_hours"] += float(rec.get("service_hours", 0.0) or 0.0)
+                total["tips_adj"] += float(rec.get("tips_adj", 0.0) or 0.0)
+            self.summary_tree.insert("", END, values=fmt_row("Total (Période)", total))
+            for date_iso in sorted(data.keys()):
+                try:
+                    dt = datetime.strptime(date_iso, "%Y-%m-%d")
+                    label = dt.strftime("%Y-%m-%d")
+                except Exception:
+                    label = date_iso
+                self.summary_tree.insert("", END, values=fmt_row(label, data.get(date_iso, {})))
+            return
+        if agg_mode == "distribution":
+            rows = []
+            for date_iso, shift, inputs, employees in self._iter_distributions(distributions):
+                ventes = to_float(inputs.get("Ventes Nettes", 0.0))
+                hours = self._collect_service_hours(employees)
+                tips = self._compute_adjusted_tips(inputs)
+                rows.append((date_iso, shift, {"ventes_nettes": ventes, "service_hours": hours, "tips_adj": tips}))
+
+            from datetime import datetime
+            def sort_key(item):
+                date_iso, shift, _rec = item
+                try:
+                    dt = datetime.strptime(date_iso, "%Y-%m-%d")
+                except Exception:
+                    dt = None
+                order = {"MATIN": 0, "SOIR": 1, "NA": 2}.get(shift, 2)
+                return (dt.toordinal() if dt else 0, order)
+
+            rows.sort(key=sort_key)
+            total = {"ventes_nettes": 0.0, "service_hours": 0.0, "tips_adj": 0.0}
+            for _date_iso, _shift, rec in rows:
+                total["ventes_nettes"] += float(rec.get("ventes_nettes", 0.0) or 0.0)
+                total["service_hours"] += float(rec.get("service_hours", 0.0) or 0.0)
+                total["tips_adj"] += float(rec.get("tips_adj", 0.0) or 0.0)
+            self.summary_tree.insert("", END, values=fmt_row("Total (Période)", total))
+            for date_iso, shift, rec in rows:
+                try:
+                    dt = datetime.strptime(date_iso, "%Y-%m-%d")
+                    base = dt.strftime("%Y-%m-%d")
+                except Exception:
+                    base = date_iso
+                label = f"{base} {shift}"
+                self.summary_tree.insert("", END, values=fmt_row(label, rec))
+            return
+
+        data = self._aggregate_per_shift(distributions)
+        total = {"ventes_nettes": 0.0, "service_hours": 0.0, "tips_adj": 0.0}
+        for rec in data.values():
+            total["ventes_nettes"] += float(rec.get("ventes_nettes", 0.0) or 0.0)
+            total["service_hours"] += float(rec.get("service_hours", 0.0) or 0.0)
+            total["tips_adj"] += float(rec.get("tips_adj", 0.0) or 0.0)
+        self.summary_tree.insert("", END, values=fmt_row("Total (Période)", total))
+        for shift in ("MATIN", "SOIR"):
+            self.summary_tree.insert("", END, values=fmt_row(shift, data.get(shift, {})))
+
+    def _aggregate_per_shift(self, distributions: list):
+        """Return dict keyed by shift ('MATIN' or 'SOIR') -> aggregated values."""
+        out = {
+            "MATIN": {"ventes_nettes": 0.0, "service_hours": 0.0, "tips_adj": 0.0},
+            "SOIR": {"ventes_nettes": 0.0, "service_hours": 0.0, "tips_adj": 0.0},
+        }
+        for _date_iso, shift, inputs, employees in self._iter_distributions(distributions):
+            if shift not in ("MATIN", "SOIR"):
+                continue
+            ventes = to_float(inputs.get("Ventes Nettes", 0.0))
+            hours = self._collect_service_hours(employees)
+            tips = self._compute_adjusted_tips(inputs)
+            out[shift]["ventes_nettes"] += float(ventes or 0.0)
+            out[shift]["service_hours"] += float(hours or 0.0)
+            out[shift]["tips_adj"] += float(tips or 0.0)
+        return out
 
     # ----------------------- Weekday summary popup -----------------------
     def _open_weekday_summary_popup(self):
