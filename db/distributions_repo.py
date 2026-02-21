@@ -170,7 +170,7 @@ def create_distribution(
         )
 
     logger.info("Distribution créée %s (%s %s)", dist_ref, date_local, shift)
-    return {"id": dist_id, "dist_ref": dist_ref}
+    return {"id": dist_id, "dist_ref": dist_ref, "created_at": now}
 
 
 def list_period_ids_with_distributions(status: Optional[str] = None) -> List[str]:

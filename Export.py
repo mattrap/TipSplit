@@ -301,12 +301,25 @@ def draw_declaration_body(c, y, entries_decl, height):
     return y
 
 # -------------------- Export Functions (Distribution+Declaration) --------------------
-def pdf_export(date, shift, period_info, fields, entries_dist, entries_decl, distribution_tab, decl_fields_raw, dist_ref):
+def _format_recorded_date(created_at: str) -> str:
+    if not created_at:
+        return ""
+    try:
+        dt = datetime.fromisoformat(created_at)
+        if dt.tzinfo is not None:
+            dt = dt.astimezone()
+        return dt.strftime("%Y-%m-%d")
+    except Exception:
+        created_at = str(created_at)
+        return created_at.split("T", 1)[0] if "T" in created_at else created_at
+
+
+def pdf_export(date, shift, period_info, fields, entries_dist, entries_decl, distribution_tab, decl_fields_raw, dist_ref, recorded_at):
     """
     Create a 2-page PDF:
       - Page 1: Distribution
       - Page 2: Declaration
-    The distribution reference is printed under the pay-period line on both pages.
+    The distribution reference and recorded date are printed under the pay-period line on both pages.
     PDF is saved under: {PDF_ROOT}/Résumé de shift/{period}/...
     """
     pdf_dir = _pdf_period_dir("daily", period_info)
@@ -330,7 +343,10 @@ def pdf_export(date, shift, period_info, fields, entries_dist, entries_decl, dis
     y -= 18
     c.setFont("Helvetica-Oblique", 10)
     c.drawString(50, y, f"Référence distribution: {dist_ref}")
-    y -= 30
+    y -= 14
+    recorded_label = _format_recorded_date(recorded_at)
+    c.drawString(50, y, f"Date d'enregistrement: {recorded_label or '—'}")
+    y -= 16
 
     y = draw_input_section(c, y, fields)
     y = draw_table_header(c, y)
@@ -352,7 +368,9 @@ def pdf_export(date, shift, period_info, fields, entries_dist, entries_decl, dis
     y -= 18
     c.setFont("Helvetica-Oblique", 10)
     c.drawString(50, y, f"Référence distribution: {dist_ref}")
-    y -= 30
+    y -= 14
+    c.drawString(50, y, f"Date d'enregistrement: {recorded_label or '—'}")
+    y -= 16
 
     decl_vals = distribution_tab.declaration_net_values()
     ventes_declarees = decl_vals.get("ventes_declarees", 0.0)
@@ -367,7 +385,7 @@ def pdf_export(date, shift, period_info, fields, entries_dist, entries_decl, dis
 def db_export(date, shift, period_info, fields_sanitized, decl_fields_raw, entries_dist, entries_decl, created_by: str = ""):
     """
     Persist the distribution & declaration into SQLite.
-    Returns (dist_id, dist_ref).
+    Returns (dist_id, dist_ref, created_at).
     """
     # map distribution rows by (employee_id, name)
     dist_map = {}
@@ -429,7 +447,7 @@ def db_export(date, shift, period_info, fields_sanitized, decl_fields_raw, entri
         employees=merged_employees,
         created_by=created_by or "",
     )
-    return result["id"], result["dist_ref"]
+    return result["id"], result["dist_ref"], result.get("created_at", "")
 
 # ===================================================================== #
 #                     Employee Résumé + Booklet                         #
@@ -546,10 +564,10 @@ def _draw_employee_pdf(out_path: str, period_label: str, info: dict):
     c.drawString(left, y, "DÉTAILLÉ:")
     y -= sec_title_gap
 
-    # columns: Date, Cash, Sur paye, Frais admin
+    # columns: Date, Cash, Sur paye, Frais admin, Total quart
     c.setFont("Helvetica-Bold", 10)
-    col_w_det = [150, 100, 110, 120]
-    headers_det = ["Date (quart)", "Cash", "Sur paye", "Frais admin"]
+    col_w_det = [150, 80, 90, 90, 90]
+    headers_det = ["Date (quart)", "Cash", "Sur paye", "Frais admin", "Total quart"]
     centers_det = _col_centers(left, col_w_det)
 
     # Header row (centered)
@@ -566,11 +584,13 @@ def _draw_employee_pdf(out_path: str, period_label: str, info: dict):
 
     for s in info.get("shifts", []):
         paginate_if_needed(c)
+        shift_total = float(s.get("cash") or 0.0) + float(s.get("sur_paye") or 0.0) + float(s.get("frais_admin") or 0.0)
         vals = [
             _safe_text(s.get("display_name") or s.get("date") or ""),
             _fmt_num(s.get("cash") or 0.0),
             _fmt_num(s.get("sur_paye") or 0.0),
             _fmt_num(s.get("frais_admin") or 0.0),
+            _fmt_num(shift_total),
         ]
         for cx, v in zip(centers_det, vals):
             c.drawCentredString(int(cx), int(y), v)
@@ -589,6 +609,8 @@ def _draw_employee_pdf(out_path: str, period_label: str, info: dict):
     c.drawCentredString(int(centers_det[1]), int(y), _fmt_num(total_cash))
     c.drawCentredString(int(centers_det[2]), int(y), _fmt_num(total_sur))
     c.drawCentredString(int(centers_det[3]), int(y), _fmt_num(total_admin))
+    grand_total = total_cash + total_sur + total_admin
+    c.drawCentredString(int(centers_det[4]), int(y), _fmt_num(grand_total))
     y -= sub_gap
 
     paginate_if_needed(c)
@@ -822,15 +844,15 @@ def export_distribution_from_tab(distribution_tab):
             messagebox.showerror("Période introuvable", "Impossible de déterminer la période de paye pour cette date.")
             return
 
-        dist_id, dist_ref = db_export(
+        dist_id, dist_ref, created_at = db_export(
             date, shift, period_info, sanitized_inputs, raw_decl_inputs, entries_dist, entries_decl,
             created_by=getattr(distribution_tab, "current_user", "")
         )
 
-        # ---- Export PDF, including the distribution reference on each page (into chosen PDF folder under Résumé de shift) ----
+        # ---- Export PDF, including the distribution reference and recorded date on each page ----
         pdf_path = pdf_export(
             date, shift, period_info, raw_inputs, entries_dist, entries_decl,
-            distribution_tab, raw_decl_inputs, dist_ref
+            distribution_tab, raw_decl_inputs, dist_ref, created_at
         )
 
         # Mark export success for progress UI (menu bar)

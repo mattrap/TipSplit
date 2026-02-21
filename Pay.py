@@ -2,7 +2,7 @@
 # Shows combined pay-period data by employee.
 # - Left: employee list (wider panel)
 # - Right: summary + a dynamic scaffold table of shifts.
-#   * Date column shows the source filename (no extension), e.g. "09-08-2025-SOIR"
+#   * Date column shows the distribution date (selected shift date)
 #   * For Service employees -> columns: A, B, E, F
 #   * For Busboys         -> columns: D
 #   * Badge shows which rule determined "Déclaré" (8% of A vs F for Service; D for Busboy)
@@ -301,8 +301,15 @@ class PayTab:
                 B_val = emp.get("B", "")
                 E_val = emp.get("E", "")
 
+                display_date = date or ""
+                display_ref = dist_ref or ""
+                if display_date and display_ref:
+                    display_name = f"{display_date} ({display_ref})"
+                else:
+                    display_name = display_date or display_ref or f"{date}-{shift}"
+
                 self.employees_index[key]["shifts"].append({
-                    "display_name": dist_ref or f"{date}-{shift}",
+                    "display_name": display_name,
                     "date": date, "shift": shift,
                     "hours": hours, "cash": cash, "sur_paye": sur_paye,
                     "frais_admin": frais_admin,
