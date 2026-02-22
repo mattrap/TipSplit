@@ -35,11 +35,12 @@ jobs:
             throw "Tag not found."
           }
           $ver = $tag.TrimStart("v")
-          @"
-# version.py
-APP_NAME = "TipSplit"
-APP_VERSION = "$ver"
-"@ | Set-Content -NoNewline -Encoding utf8 version.py
+          $lines = @(
+            "# version.py",
+            "APP_NAME = `"TipSplit`"",
+            "APP_VERSION = `"$ver`""
+          )
+          $lines | Set-Content -NoNewline -Encoding utf8 version.py
           "ver=$ver" >> $env:GITHUB_OUTPUT
 
       - name: Verify bundle layout (defaults, assets)
