@@ -6,7 +6,7 @@
 #   * For Service employees -> columns: A, B, E, F
 #   * For Busboys         -> columns: D
 #   * Badge shows which rule determined "Déclaré" (8% of A vs F for Service; D for Busboy)
-#   * Far-right header buttons: "Exporter tous (PDF)" and "Créer livret (PDF)"
+#   * Far-right header button: "Exporter (PDF)"
 #
 # Storage model (SQLite):
 # - Distributions and pay-period summaries are stored in the local database.
@@ -39,6 +39,7 @@ class PayTab:
         self.selected_period_var = StringVar()   # shows the period label
         self.current_period_label = None
         self.current_period_id = None
+        self.current_period_info = None
 
         # Data built from the selected period
         self.employees_index = {}
@@ -84,15 +85,12 @@ class PayTab:
 
         ttk.Button(left_box, text="Rafraîchir", command=self.refresh_pay_files).pack(side=LEFT, padx=6)
 
-        # RIGHT side of header (export buttons pinned to far right)
+        # RIGHT side of header (export button pinned to far right)
         right_box = ttk.Frame(header)
         right_box.pack(side=RIGHT)
 
         ttk.Button(
-            right_box, text="Créer livret (PDF)", bootstyle="primary", command=self.on_make_booklet
-        ).pack(side=RIGHT, padx=6)
-        ttk.Button(
-            right_box, text="Exporter tous (PDF)", bootstyle="secondary", command=self.on_export_all
+            right_box, text="Exporter (PDF)", bootstyle="primary", command=self.on_export_pdf
         ).pack(side=RIGHT, padx=6)
 
         # Paned layout so the employee panel is wider and resizable
@@ -221,6 +219,7 @@ class PayTab:
         if not label:
             self.current_period_id = None
             self.current_period_label = None
+            self.current_period_info = None
             return
 
         info = self._period_map.get(label)
@@ -228,6 +227,7 @@ class PayTab:
             return
         self.current_period_id = info.get("id")
         self.current_period_label = label
+        self.current_period_info = info
         try:
             dists = get_distributions_for_period(
                 pay_period_id=self.current_period_id,
@@ -262,6 +262,11 @@ class PayTab:
             date = safe_str(dist.get("date_iso") or dist.get("date_local"))
             shift = safe_str(dist.get("shift"))
             dist_ref = safe_str(dist.get("dist_ref"))
+            shift_instance = dist.get("shift_instance", 1)
+            try:
+                shift_instance = int(shift_instance)
+            except Exception:
+                shift_instance = 1
             employees = dist.get("employees", [])
             if not isinstance(employees, list):
                 continue
@@ -303,7 +308,14 @@ class PayTab:
 
                 display_date = date or ""
                 display_ref = dist_ref or ""
-                if display_date and display_ref:
+                shift_label = shift.strip().upper() if shift else ""
+                if shift_label and shift_instance and shift_instance > 1:
+                    shift_label = f"{shift_label} #{shift_instance}"
+                if display_date and shift_label and display_ref:
+                    display_name = f"{display_date} {shift_label} ({display_ref})"
+                elif display_date and shift_label:
+                    display_name = f"{display_date} {shift_label}"
+                elif display_date and display_ref:
                     display_name = f"{display_date} ({display_ref})"
                 else:
                     display_name = display_date or display_ref or f"{date}-{shift}"
@@ -461,6 +473,43 @@ class PayTab:
             return
 
         messagebox.showinfo("Livret PDF", f"Livret créé:\n{booklet_path}")
+
+    def on_export_pdf(self):
+        if not self.current_period_label:
+            messagebox.showwarning("Export PDF", "Aucune période sélectionnée.")
+            return
+        if not self.employees_index:
+            messagebox.showwarning("Export PDF", "Aucun employé à exporter.")
+            return
+
+        try:
+            from Export import export_all_employee_pdfs, make_booklet
+            period_info = self.current_period_info or {}
+            pay_id = period_info.get("display_id") or period_info.get("id") or "PAY"
+            start_iso = period_info.get("start_date_iso")
+            end_iso = period_info.get("end_date_iso")
+            pay_period = None
+            if start_iso and end_iso:
+                pay_period = f"{start_iso}/{end_iso}"
+            else:
+                range_label = period_info.get("range_label") or self.current_period_label or ""
+                # Try to normalize DD/MM/YYYY -> YYYY-MM-DD
+                m = re.match(r"^(\d{2})/(\d{2})/(\d{4})\\s+au\\s+(\\d{2})/(\\d{2})/(\\d{4})$", range_label)
+                if m:
+                    a = f"{m.group(3)}-{m.group(2)}-{m.group(1)}"
+                    b = f"{m.group(6)}-{m.group(5)}-{m.group(4)}"
+                    pay_period = f"{a}/{b}"
+                else:
+                    pay_period = range_label.replace(" au ", "/")
+            raw_name = f"({pay_id}) - {pay_period}.pdf"
+            safe_name = re.sub(r"[\\/:*?\"<>|]+", "-", raw_name).strip()
+            pdfs = export_all_employee_pdfs(self.current_period_label, self.employees_index, out_dir="")
+            booklet_path = make_booklet(self.current_period_label, pdfs, safe_name)
+        except Exception as e:
+            messagebox.showerror("Export PDF", f"Erreur d'export:\n{e}")
+            return
+
+        messagebox.showinfo("Export PDF", f"Export créé:\n{booklet_path}")
 
     # -----------------------
     # Helpers

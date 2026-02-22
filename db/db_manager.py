@@ -25,7 +25,7 @@ from AppConfig import get_user_data_dir
 
 APP_NAME = "TipSplit"
 DB_FILENAME = "tipsplit.db"
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 logger = logging.getLogger("tipsplit.db")
 
@@ -120,8 +120,7 @@ def init_db() -> None:
 
 def apply_migrations(conn: sqlite3.Connection) -> None:
     """
-    Initialize or refresh the schema. Since the product is not yet shipped,
-    we simply recreate the latest schema if versions differ.
+    Initialize or migrate the schema to the latest version.
     """
     conn.execute(
         """
@@ -135,15 +134,34 @@ def apply_migrations(conn: sqlite3.Connection) -> None:
     row = conn.execute("SELECT value FROM schema_meta WHERE key = 'schema_version'").fetchone()
     current_version = int(row["value"]) if row else None
 
-    if current_version != SCHEMA_VERSION:
-        logger.info("Initializing schema version %s (dropping previous dev schema)", SCHEMA_VERSION)
+    if current_version is None:
+        logger.info("Initializing schema version %s", SCHEMA_VERSION)
         _create_schema(conn)
         conn.execute(
             "INSERT OR REPLACE INTO schema_meta(key, value) VALUES ('schema_version', ?)",
             (str(SCHEMA_VERSION),),
         )
-    else:
+        return
+
+    if current_version == SCHEMA_VERSION:
         logger.info("Schema version %s already applied", current_version)
+        return
+
+    if current_version == 2 and SCHEMA_VERSION == 3:
+        logger.info("Migrating schema 2 -> 3")
+        _migrate_2_to_3(conn)
+        conn.execute(
+            "INSERT OR REPLACE INTO schema_meta(key, value) VALUES ('schema_version', ?)",
+            (str(SCHEMA_VERSION),),
+        )
+        return
+
+    logger.warning("Unsupported schema version %s; reinitializing schema %s", current_version, SCHEMA_VERSION)
+    _create_schema(conn)
+    conn.execute(
+        "INSERT OR REPLACE INTO schema_meta(key, value) VALUES ('schema_version', ?)",
+        (str(SCHEMA_VERSION),),
+    )
 
 
 def _create_schema(conn: sqlite3.Connection) -> None:
@@ -290,13 +308,14 @@ def _create_schema(conn: sqlite3.Connection) -> None:
             pay_period_id TEXT NOT NULL,
             date_local TEXT NOT NULL,
             shift TEXT NOT NULL,
+            shift_instance INTEGER NOT NULL DEFAULT 1,
             status TEXT NOT NULL CHECK(status IN ('UNCONFIRMED','CONFIRMED')) DEFAULT 'UNCONFIRMED',
             created_at TEXT NOT NULL,
             confirmed_at TEXT,
             created_by TEXT,
             confirmed_by TEXT,
             FOREIGN KEY(pay_period_id) REFERENCES pay_periods(id) ON DELETE CASCADE,
-            UNIQUE(pay_period_id, date_local, shift)
+            UNIQUE(pay_period_id, date_local, shift, shift_instance)
         );
         """
     )
@@ -312,10 +331,73 @@ def _create_schema(conn: sqlite3.Connection) -> None:
         ON distributions(date_local);
         """
     )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_distributions_day_shift
+        ON distributions(pay_period_id, date_local, shift, shift_instance);
+        """
+    )
+
+
+def _migrate_2_to_3(conn: sqlite3.Connection) -> None:
+    """Add shift_instance to distributions and update uniqueness constraint."""
+    conn.execute("PRAGMA foreign_keys = OFF;")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS distributions_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            dist_ref TEXT UNIQUE,
+            pay_period_id TEXT NOT NULL,
+            date_local TEXT NOT NULL,
+            shift TEXT NOT NULL,
+            shift_instance INTEGER NOT NULL DEFAULT 1,
+            status TEXT NOT NULL CHECK(status IN ('UNCONFIRMED','CONFIRMED')) DEFAULT 'UNCONFIRMED',
+            created_at TEXT NOT NULL,
+            confirmed_at TEXT,
+            created_by TEXT,
+            confirmed_by TEXT,
+            FOREIGN KEY(pay_period_id) REFERENCES pay_periods(id) ON DELETE CASCADE,
+            UNIQUE(pay_period_id, date_local, shift, shift_instance)
+        );
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO distributions_new(
+            id, dist_ref, pay_period_id, date_local, shift, shift_instance,
+            status, created_at, confirmed_at, created_by, confirmed_by
+        )
+        SELECT
+            id, dist_ref, pay_period_id, date_local, shift, 1,
+            status, created_at, confirmed_at, created_by, confirmed_by
+        FROM distributions;
+        """
+    )
+    conn.execute("DROP TABLE distributions;")
+    conn.execute("ALTER TABLE distributions_new RENAME TO distributions;")
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_distributions_period_status
+        ON distributions(pay_period_id, status);
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_distributions_date
+        ON distributions(date_local);
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_distributions_day_shift
+        ON distributions(pay_period_id, date_local, shift, shift_instance);
+        """
+    )
+    conn.execute("PRAGMA foreign_keys = ON;")
 
     conn.execute(
         """
-        CREATE TABLE distribution_inputs (
+        CREATE TABLE IF NOT EXISTS distribution_inputs (
             distribution_id INTEGER PRIMARY KEY,
             ventes_nettes REAL,
             depot_net REAL,
@@ -328,7 +410,7 @@ def _create_schema(conn: sqlite3.Connection) -> None:
 
     conn.execute(
         """
-        CREATE TABLE distribution_declaration_inputs (
+        CREATE TABLE IF NOT EXISTS distribution_declaration_inputs (
             distribution_id INTEGER PRIMARY KEY,
             ventes_totales REAL,
             clients INTEGER,
@@ -341,7 +423,7 @@ def _create_schema(conn: sqlite3.Connection) -> None:
 
     conn.execute(
         """
-        CREATE TABLE distribution_employees (
+        CREATE TABLE IF NOT EXISTS distribution_employees (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             distribution_id INTEGER NOT NULL,
             employee_number TEXT,
@@ -369,7 +451,7 @@ def _create_schema(conn: sqlite3.Connection) -> None:
 
     conn.execute(
         """
-        CREATE TABLE distribution_audit (
+        CREATE TABLE IF NOT EXISTS distribution_audit (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             distribution_id INTEGER NOT NULL,
             action TEXT NOT NULL,

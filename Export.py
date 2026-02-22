@@ -2,16 +2,24 @@ from datetime import datetime
 from reportlab.lib.units import inch
 from reportlab.lib.pagesizes import letter, landscape
 from reportlab.pdfgen import canvas
+import tkinter as tk
 from tkinter import messagebox
+import ttkbootstrap as ttk
 import os
 import subprocess
 import traceback
 import sys
 import platform
 from typing import Dict, List
+import sqlite3
 from AppConfig import get_pdf_dir
 import time
-from db.distributions_repo import create_distribution
+from db.distributions_repo import (
+    create_distribution,
+    delete_distribution,
+    find_distribution_by_key,
+    next_shift_instance,
+)
 
 # -------------------- Utility --------------------
 def get_unique_filename(base_path):
@@ -28,6 +36,58 @@ def get_unique_filename(base_path):
 def _ensure_dir(path: str):
     if path and not os.path.exists(path):
         os.makedirs(path, exist_ok=True)
+
+
+def _confirm_action(message: str) -> bool:
+    return messagebox.askyesno("Confirmation", message)
+
+
+def _ask_duplicate_action(shift: str, next_instance: int) -> str | None:
+    """
+    Return "replace", "new", or None (cancel).
+    """
+    result = {"value": None}
+    parent = tk._default_root
+    top = ttk.Toplevel(parent) if parent else ttk.Toplevel()
+    top.title("Distribution existante")
+    top.resizable(False, False)
+    if parent:
+        top.transient(parent)
+    top.grab_set()
+
+    frame = ttk.Frame(top, padding=(16, 12))
+    frame.pack(fill="both", expand=True)
+    msg = (
+        "Il y a déjà une distribution enregistrée pour cette journée et ce shift.\n"
+        "Voulez vous la remplacer avec celle ci ou annuler cette distribution ?"
+    )
+    ttk.Label(frame, text=msg, justify="left", wraplength=420).pack(anchor="w")
+
+    btns = ttk.Frame(frame)
+    btns.pack(anchor="e", pady=(12, 0))
+
+    def choose_replace():
+        if _confirm_action("Êtes vous sur de vouloir remplacer cette distribution ?"):
+            result["value"] = "replace"
+            top.destroy()
+
+    def choose_new():
+        label = f"{shift} #{next_instance}"
+        if _confirm_action(f"Êtes vous sur de vouloir créer une nouvelle instance ({label}) ?"):
+            result["value"] = "new"
+            top.destroy()
+
+    def choose_cancel():
+        if _confirm_action("Êtes vous sur de vouloir annuler cette distribution ?"):
+            result["value"] = None
+            top.destroy()
+
+    ttk.Button(btns, text="Créer une nouvelle instance", bootstyle="primary", command=choose_new).pack(side="left", padx=(0, 6))
+    ttk.Button(btns, text="Remplacer", bootstyle="warning", command=choose_replace).pack(side="left", padx=(0, 6))
+    ttk.Button(btns, text="Annuler", bootstyle="danger", command=choose_cancel).pack(side="left")
+
+    top.wait_window()
+    return result["value"]
 
 def _fallback_pdf_root() -> str:
     """Safe fallback if user skipped choosing a folder."""
@@ -314,7 +374,7 @@ def _format_recorded_date(created_at: str) -> str:
         return created_at.split("T", 1)[0] if "T" in created_at else created_at
 
 
-def pdf_export(date, shift, period_info, fields, entries_dist, entries_decl, distribution_tab, decl_fields_raw, dist_ref, recorded_at):
+def pdf_export(date, shift, period_info, fields, entries_dist, entries_decl, distribution_tab, decl_fields_raw, dist_ref, recorded_at, shift_instance: int = 1):
     """
     Create a 2-page PDF:
       - Page 1: Distribution
@@ -323,7 +383,8 @@ def pdf_export(date, shift, period_info, fields, entries_dist, entries_decl, dis
     PDF is saved under: {PDF_ROOT}/Résumé de shift/{period}/...
     """
     pdf_dir = _pdf_period_dir("daily", period_info)
-    base_pdf_path = os.path.join(pdf_dir, f"{date}-{shift}_distribution.pdf")
+    inst_suffix = f"-{shift_instance}" if shift_instance and shift_instance > 1 else ""
+    base_pdf_path = os.path.join(pdf_dir, f"{date}-{shift}{inst_suffix}_distribution.pdf")
     final_pdf_path = get_unique_filename(base_pdf_path)
 
     c = canvas.Canvas(final_pdf_path, pagesize=letter)
@@ -332,7 +393,8 @@ def pdf_export(date, shift, period_info, fields, entries_dist, entries_decl, dis
     # -------------- PAGE 1: Distribution --------------
     y = height - inch
     c.setFont("Helvetica-Bold", 14)
-    c.drawString(50, y, f"Résumé de la distribution — {date} — {shift}")
+    shift_label = f"{shift} #{shift_instance}" if shift_instance and shift_instance > 1 else shift
+    c.drawString(50, y, f"Résumé de la distribution — {date} — {shift_label}")
     y -= 20
     start_label, end_label = _period_label_dates(period_info)
     c.setFont("Helvetica", 11)
@@ -358,7 +420,7 @@ def pdf_export(date, shift, period_info, fields, entries_dist, entries_decl, dis
     c.showPage()
     y = height - inch
     c.setFont("Helvetica-Bold", 14)
-    c.drawString(50, y, f"Déclaration — {date} — {shift}")
+    c.drawString(50, y, f"Déclaration — {date} — {shift_label}")
     y -= 20
     c.setFont("Helvetica", 11)
     if start_label and end_label:
@@ -382,7 +444,17 @@ def pdf_export(date, shift, period_info, fields, entries_dist, entries_decl, dis
     c.save()
     return final_pdf_path
 
-def db_export(date, shift, period_info, fields_sanitized, decl_fields_raw, entries_dist, entries_decl, created_by: str = ""):
+def db_export(
+    date,
+    shift,
+    period_info,
+    fields_sanitized,
+    decl_fields_raw,
+    entries_dist,
+    entries_decl,
+    created_by: str = "",
+    shift_instance: int = 1,
+):
     """
     Persist the distribution & declaration into SQLite.
     Returns (dist_id, dist_ref, created_at).
@@ -438,16 +510,63 @@ def db_export(date, shift, period_info, fields_sanitized, decl_fields_raw, entri
         "Ventes Nourriture": decl_fields_raw.get("Ventes Nourriture", ""),
     }
 
-    result = create_distribution(
-        pay_period_id=period_info.get("id"),
-        date_local=date,
-        shift=shift,
-        inputs=fields_sanitized,
-        declaration_inputs=decl_vals_out,
-        employees=merged_employees,
-        created_by=created_by or "",
-    )
-    return result["id"], result["dist_ref"], result.get("created_at", "")
+    try:
+        result = create_distribution(
+            pay_period_id=period_info.get("id"),
+            date_local=date,
+            shift=shift,
+            shift_instance=shift_instance,
+            inputs=fields_sanitized,
+            declaration_inputs=decl_vals_out,
+            employees=merged_employees,
+            created_by=created_by or "",
+        )
+    except sqlite3.IntegrityError as exc:
+        msg = str(exc)
+        if "UNIQUE constraint failed: distributions.pay_period_id, distributions.date_local, distributions.shift, distributions.shift_instance" in msg:
+            next_inst = next_shift_instance(
+                pay_period_id=period_info.get("id"),
+                date_local=date,
+                shift=shift,
+            )
+            action = _ask_duplicate_action(_safe_text(shift).upper(), next_inst)
+            if not action:
+                return None, None, None, None
+            if action == "replace":
+                existing = find_distribution_by_key(
+                    pay_period_id=period_info.get("id"),
+                    date_local=date,
+                    shift=shift,
+                    shift_instance=shift_instance,
+                )
+                if existing and existing.get("id"):
+                    delete_distribution(int(existing["id"]), actor=created_by or "")
+                result = create_distribution(
+                    pay_period_id=period_info.get("id"),
+                    date_local=date,
+                    shift=shift,
+                    shift_instance=shift_instance,
+                    inputs=fields_sanitized,
+                    declaration_inputs=decl_vals_out,
+                    employees=merged_employees,
+                    created_by=created_by or "",
+                )
+                return result["id"], result["dist_ref"], result.get("created_at", ""), shift_instance
+            elif action == "new":
+                result = create_distribution(
+                    pay_period_id=period_info.get("id"),
+                    date_local=date,
+                    shift=shift,
+                    shift_instance=next_inst,
+                    inputs=fields_sanitized,
+                    declaration_inputs=decl_vals_out,
+                    employees=merged_employees,
+                    created_by=created_by or "",
+                )
+                return result["id"], result["dist_ref"], result.get("created_at", ""), next_inst
+        else:
+            raise
+    return result["id"], result["dist_ref"], result.get("created_at", ""), shift_instance
 
 # ===================================================================== #
 #                     Employee Résumé + Booklet                         #
@@ -487,8 +606,13 @@ def _safe_text(x) -> str:
     return "" if x is None else str(x)
 
 def _safe_key(info: dict) -> str:
-    """Filename-safe employee key: prefer ID, else name."""
-    base = _safe_text(info.get("id") or info.get("name") or "employee")
+    """Filename-safe employee key: {employee_number} - {employee_name}."""
+    emp_id = _safe_text(info.get("id") or info.get("employee_id") or "").strip()
+    name = _safe_text(info.get("name") or "").strip()
+    if emp_id and name:
+        base = f"{emp_id} - {name}"
+    else:
+        base = emp_id or name or "employee"
     for ch in ["/", "\\", ":", "*", "?", "\"", "<", ">", "|"]:
         base = base.replace(ch, "_")
     return base.strip() or "employee"
@@ -844,15 +968,18 @@ def export_distribution_from_tab(distribution_tab):
             messagebox.showerror("Période introuvable", "Impossible de déterminer la période de paye pour cette date.")
             return
 
-        dist_id, dist_ref, created_at = db_export(
+        dist_id, dist_ref, created_at, shift_instance = db_export(
             date, shift, period_info, sanitized_inputs, raw_decl_inputs, entries_dist, entries_decl,
             created_by=getattr(distribution_tab, "current_user", "")
         )
+        if not dist_id:
+            # User chose to cancel the replacement
+            return
 
         # ---- Export PDF, including the distribution reference and recorded date on each page ----
         pdf_path = pdf_export(
             date, shift, period_info, raw_inputs, entries_dist, entries_decl,
-            distribution_tab, raw_decl_inputs, dist_ref, created_at
+            distribution_tab, raw_decl_inputs, dist_ref, created_at, shift_instance
         )
 
         # Mark export success for progress UI (menu bar)

@@ -66,6 +66,7 @@ def create_distribution(
     pay_period_id: str,
     date_local: str,
     shift: str,
+    shift_instance: int = 1,
     inputs: Dict,
     declaration_inputs: Dict,
     employees: Iterable[Dict],
@@ -77,18 +78,20 @@ def create_distribution(
         raise ValueError("date_local manquante.")
     if not shift:
         raise ValueError("shift manquant.")
+    if not isinstance(shift_instance, int) or shift_instance < 1:
+        raise ValueError("shift_instance invalide.")
 
     now = _utc_now()
     with db_session() as conn:
         cur = conn.execute(
             """
             INSERT INTO distributions(
-                pay_period_id, date_local, shift, status,
+                pay_period_id, date_local, shift, shift_instance, status,
                 created_at, created_by
             )
-            VALUES (?, ?, ?, 'UNCONFIRMED', ?, ?)
+            VALUES (?, ?, ?, ?, 'UNCONFIRMED', ?, ?)
             """,
-            (pay_period_id, date_local, shift.upper(), now, created_by or ""),
+            (pay_period_id, date_local, shift.upper(), shift_instance, now, created_by or ""),
         )
         dist_id = int(cur.lastrowid)
 
@@ -166,7 +169,7 @@ def create_distribution(
             dist_id,
             action="created",
             actor=created_by,
-            details={"date_local": date_local, "shift": shift.upper()},
+            details={"date_local": date_local, "shift": shift.upper(), "shift_instance": shift_instance},
         )
 
     logger.info("Distribution créée %s (%s %s)", dist_ref, date_local, shift)
@@ -224,7 +227,7 @@ def list_distributions(
     with db_session() as conn:
         rows = conn.execute(
             f"""
-            SELECT id, dist_ref, date_local, shift, status, created_at, confirmed_at
+            SELECT id, dist_ref, date_local, shift, shift_instance, status, created_at, confirmed_at
             FROM distributions
             WHERE pay_period_id = ?
             {clause}
@@ -241,7 +244,7 @@ def get_distribution(dist_id: int) -> Optional[Dict]:
     with db_session() as conn:
         row = conn.execute(
             """
-            SELECT id, dist_ref, pay_period_id, date_local, shift,
+            SELECT id, dist_ref, pay_period_id, date_local, shift, shift_instance,
                    status, created_at, confirmed_at, created_by, confirmed_by
             FROM distributions
             WHERE id = ?
@@ -302,6 +305,69 @@ def get_distribution(dist_id: int) -> Optional[Dict]:
         "declaration_inputs": decl_inputs,
         "employees": [dict(emp) for emp in employees],
     }
+
+
+def find_distribution_by_key(
+    *,
+    pay_period_id: str,
+    date_local: str,
+    shift: str,
+    shift_instance: int,
+) -> Optional[Dict]:
+    if not pay_period_id or not date_local or not shift:
+        return None
+    with db_session() as conn:
+        row = conn.execute(
+            """
+            SELECT id, dist_ref, date_local, shift, shift_instance, status, created_at, confirmed_at
+            FROM distributions
+            WHERE pay_period_id = ? AND date_local = ? AND shift = ? AND shift_instance = ?
+            """,
+            (pay_period_id, date_local, shift.upper(), shift_instance),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def list_distributions_by_date_shift(
+    *,
+    pay_period_id: str,
+    date_local: str,
+    shift: str,
+) -> List[Dict]:
+    if not pay_period_id or not date_local or not shift:
+        return []
+    with db_session() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, dist_ref, date_local, shift, shift_instance, status, created_at, confirmed_at
+            FROM distributions
+            WHERE pay_period_id = ? AND date_local = ? AND shift = ?
+            ORDER BY shift_instance ASC, created_at ASC, id ASC
+            """,
+            (pay_period_id, date_local, shift.upper()),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def next_shift_instance(
+    *,
+    pay_period_id: str,
+    date_local: str,
+    shift: str,
+) -> int:
+    if not pay_period_id or not date_local or not shift:
+        return 1
+    with db_session() as conn:
+        row = conn.execute(
+            """
+            SELECT MAX(shift_instance) AS max_inst
+            FROM distributions
+            WHERE pay_period_id = ? AND date_local = ? AND shift = ?
+            """,
+            (pay_period_id, date_local, shift.upper()),
+        ).fetchone()
+    max_inst = row["max_inst"] if row and row["max_inst"] is not None else 0
+    return int(max_inst) + 1
 
 
 def get_distributions_for_period(

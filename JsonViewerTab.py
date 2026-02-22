@@ -335,11 +335,17 @@ class JsonViewerTab:
         self.confirmed_entries = confirmed
 
         for row in unconfirmed:
-            display = f"{row.get('date_local', '')} {row.get('shift', '')} — {row.get('dist_ref', '')}"
+            shift = row.get("shift", "")
+            inst = row.get("shift_instance", 1)
+            shift_label = f"{shift} #{inst}" if inst and int(inst) > 1 else shift
+            display = f"{row.get('date_local', '')} {shift_label} — {row.get('dist_ref', '')}"
             self.unconfirmed_listbox.insert(END, display)
 
         for row in confirmed:
-            display = f"{row.get('date_local', '')} {row.get('shift', '')} — {row.get('dist_ref', '')}"
+            shift = row.get("shift", "")
+            inst = row.get("shift_instance", 1)
+            shift_label = f"{shift} #{inst}" if inst and int(inst) > 1 else shift
+            display = f"{row.get('date_local', '')} {shift_label} — {row.get('dist_ref', '')}"
             self.confirmed_listbox.insert(END, display)
 
     # -----------------------

@@ -350,32 +350,33 @@ class AnalyseTab:
 
         if agg_mode == "distribution":
             rows = []
-            for date_iso, shift, inputs, employees in self._iter_distributions(self.current_distributions):
+            for date_iso, shift, shift_instance, inputs, employees in self._iter_distributions(self.current_distributions):
                 ventes = to_float(inputs.get("Ventes Nettes", 0.0))
                 hours = self._collect_service_hours(employees)
                 tips = self._compute_adjusted_tips(inputs)
-                rows.append((date_iso, shift, {"ventes_nettes": ventes, "service_hours": hours, "tips_adj": tips}))
+                rows.append((date_iso, shift, shift_instance, {"ventes_nettes": ventes, "service_hours": hours, "tips_adj": tips}))
 
             from datetime import datetime
             def sort_key(item):
-                date_iso, shift, _rec = item
+                date_iso, shift, shift_instance, _rec = item
                 try:
                     dt = datetime.strptime(date_iso, "%Y-%m-%d")
                 except Exception:
                     dt = None
                 order = {"MATIN": 0, "SOIR": 1, "NA": 2}.get(shift, 2)
-                return (dt.toordinal() if dt else 0, order)
+                return (dt.toordinal() if dt else 0, order, shift_instance or 1)
 
             rows.sort(key=sort_key)
             x_labels, values = [], []
-            for date_iso, shift, rec in rows:
+            for date_iso, shift, shift_instance, rec in rows:
                 try:
                     dt = datetime.strptime(date_iso, "%Y-%m-%d")
                     base = dt.strftime("%m-%d")
                 except Exception:
                     base = date_iso
                 suffix = "M" if shift == "MATIN" else ("S" if shift == "SOIR" else "?")
-                x_labels.append(f"{base} {suffix}")
+                inst = f" #{shift_instance}" if shift_instance and int(shift_instance) > 1 else ""
+                x_labels.append(f"{base} {suffix}{inst}")
                 values.append(self._metric_from_record(rec, metric_key))
             y_suffix = "%" if metric_key == "tip_pct" else None
             return x_labels, values, y_suffix
@@ -621,7 +622,7 @@ class AnalyseTab:
 
     # ----------------------- New data collectors -----------------------
     def _iter_distributions(self, distributions: list):
-        """Yield (date_iso, shift_upper, inputs_dict, employees_list) for each valid distribution."""
+        """Yield (date_iso, shift_upper, shift_instance, inputs_dict, employees_list) for each valid distribution."""
         if not isinstance(distributions, list):
             return
         for dist in distributions:
@@ -637,9 +638,14 @@ class AnalyseTab:
                 shift_upper = "SOIR"
             else:
                 shift_upper = "NA"
+            shift_instance = dist.get("shift_instance", 1)
+            try:
+                shift_instance = int(shift_instance)
+            except Exception:
+                shift_instance = 1
             inputs = dist.get("inputs", {}) if isinstance(dist.get("inputs", {}), dict) else {}
             employees = dist.get("employees", []) if isinstance(dist.get("employees", []), list) else []
-            yield (date_iso, shift_upper, inputs, employees)
+            yield (date_iso, shift_upper, shift_instance, inputs, employees)
 
     def _collect_service_hours(self, employees: list) -> float:
         """Sum hours for section containing 'Service' (case-insensitive)."""
@@ -675,7 +681,7 @@ class AnalyseTab:
           tip_pct = tips_adj / max(ventes_nettes, 0.0001)
         """
         out = {}
-        for date_iso, _shift, inputs, employees in self._iter_distributions(distributions):
+        for date_iso, _shift, _shift_instance, inputs, employees in self._iter_distributions(distributions):
             ventes = to_float(inputs.get("Ventes Nettes", 0.0))
             hours = self._collect_service_hours(employees)
             tips = self._compute_adjusted_tips(inputs)
@@ -694,7 +700,7 @@ class AnalyseTab:
         shift_upper is 'MATIN' or 'SOIR' (normalize unknown shift to 'NA').
         """
         out = {}
-        for date_iso, shift, inputs, employees in self._iter_distributions(distributions):
+        for date_iso, shift, _shift_instance, inputs, employees in self._iter_distributions(distributions):
             ventes = to_float(inputs.get("Ventes Nettes", 0.0))
             hours = self._collect_service_hours(employees)
             tips = self._compute_adjusted_tips(inputs)
@@ -721,7 +727,7 @@ class AnalyseTab:
         """
         from datetime import datetime
         out = {}
-        for date_iso, _shift, inputs, employees in self._iter_distributions(distributions):
+        for date_iso, _shift, _shift_instance, inputs, employees in self._iter_distributions(distributions):
             try:
                 dt = datetime.strptime(date_iso, "%Y-%m-%d")
                 weekday_name = dt.strftime("%A")
@@ -811,36 +817,37 @@ class AnalyseTab:
             return
         if agg_mode == "distribution":
             rows = []
-            for date_iso, shift, inputs, employees in self._iter_distributions(distributions):
+            for date_iso, shift, shift_instance, inputs, employees in self._iter_distributions(distributions):
                 ventes = to_float(inputs.get("Ventes Nettes", 0.0))
                 hours = self._collect_service_hours(employees)
                 tips = self._compute_adjusted_tips(inputs)
-                rows.append((date_iso, shift, {"ventes_nettes": ventes, "service_hours": hours, "tips_adj": tips}))
+                rows.append((date_iso, shift, shift_instance, {"ventes_nettes": ventes, "service_hours": hours, "tips_adj": tips}))
 
             from datetime import datetime
             def sort_key(item):
-                date_iso, shift, _rec = item
+                date_iso, shift, shift_instance, _rec = item
                 try:
                     dt = datetime.strptime(date_iso, "%Y-%m-%d")
                 except Exception:
                     dt = None
                 order = {"MATIN": 0, "SOIR": 1, "NA": 2}.get(shift, 2)
-                return (dt.toordinal() if dt else 0, order)
+                return (dt.toordinal() if dt else 0, order, shift_instance or 1)
 
             rows.sort(key=sort_key)
             total = {"ventes_nettes": 0.0, "service_hours": 0.0, "tips_adj": 0.0}
-            for _date_iso, _shift, rec in rows:
+            for _date_iso, _shift, _shift_instance, rec in rows:
                 total["ventes_nettes"] += float(rec.get("ventes_nettes", 0.0) or 0.0)
                 total["service_hours"] += float(rec.get("service_hours", 0.0) or 0.0)
                 total["tips_adj"] += float(rec.get("tips_adj", 0.0) or 0.0)
             self.summary_tree.insert("", END, values=fmt_row("Total (Période)", total))
-            for date_iso, shift, rec in rows:
+            for date_iso, shift, shift_instance, rec in rows:
                 try:
                     dt = datetime.strptime(date_iso, "%Y-%m-%d")
                     base = dt.strftime("%Y-%m-%d")
                 except Exception:
                     base = date_iso
-                label = f"{base} {shift}"
+                inst = f" #{shift_instance}" if shift_instance and int(shift_instance) > 1 else ""
+                label = f"{base} {shift}{inst}"
                 self.summary_tree.insert("", END, values=fmt_row(label, rec))
             return
 
@@ -860,7 +867,7 @@ class AnalyseTab:
             "MATIN": {"ventes_nettes": 0.0, "service_hours": 0.0, "tips_adj": 0.0},
             "SOIR": {"ventes_nettes": 0.0, "service_hours": 0.0, "tips_adj": 0.0},
         }
-        for _date_iso, shift, inputs, employees in self._iter_distributions(distributions):
+        for _date_iso, shift, _shift_instance, inputs, employees in self._iter_distributions(distributions):
             if shift not in ("MATIN", "SOIR"):
                 continue
             ventes = to_float(inputs.get("Ventes Nettes", 0.0))
