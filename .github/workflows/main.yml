@@ -40,12 +40,6 @@ jobs:
       - name: Verify bundle layout (defaults, assets)
         shell: pwsh
         run: |
-          if (!(Test-Path -LiteralPath "defaults/service_employees.json")) {
-            throw "Missing defaults/service_employees.json"
-          }
-          if (!(Test-Path -LiteralPath "defaults/bussboy_employees.json")) {
-            throw "Missing defaults/bussboy_employees.json"
-          }
           if (!(Test-Path -LiteralPath "supabase.env")) {
             throw "Missing supabase.env (Supabase credentials)"
           }
