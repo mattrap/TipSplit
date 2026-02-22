@@ -59,7 +59,7 @@ jobs:
       - name: Build EXE (PyInstaller)
         shell: pwsh
         run: |
-          pyinstaller --noconsole --name TipSplit --noconfirm MainApp.spec
+          pyinstaller --noconfirm MainApp.spec
 
       - name: Install Inno Setup
         shell: pwsh
