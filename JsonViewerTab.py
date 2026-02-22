@@ -65,6 +65,20 @@ class JsonViewerTab:
                 return None
         return None
 
+    def _format_local_ts(self, ts: str) -> str:
+        """Convert ISO UTC timestamps to local time for display."""
+        if not ts:
+            return ""
+        try:
+            from datetime import datetime, timezone
+            dt = datetime.fromisoformat(ts)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            dt_local = dt.astimezone()
+            return dt_local.strftime("%Y-%m-%d %H:%M")
+        except Exception:
+            return ts
+
     def _build_ui(self):
         # Header
         header_frame = ttk.Frame(self.frame)
@@ -376,8 +390,9 @@ class JsonViewerTab:
             messagebox.showerror("Erreur", "Distribution introuvable.")
             return
         ts = dist.get("created_at") or ""
+        ts_local = self._format_local_ts(ts)
         dist_ref = dist.get("dist_ref") or ""
-        self.file_info_var.set(f"Distribution sélectionnée: {dist_ref} // Créée le: {ts}")
+        self.file_info_var.set(f"Distribution sélectionnée: {dist_ref} // Créée le: {ts_local}")
 
         try:
             self.clear_treeviews()
