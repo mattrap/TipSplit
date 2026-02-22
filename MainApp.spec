@@ -47,3 +47,13 @@ exe = EXE(
     entitlements_file=None,
     icon='assets/icons/app_icon.icns' if platform == 'darwin' else 'assets/icons/app_icon.ico',
 )
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    name='TipSplit',
+)
