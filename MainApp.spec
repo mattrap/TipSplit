@@ -10,8 +10,6 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[
-        # include employee defaults
-        ('defaults/*.json', 'defaults'),
         ('supabase.env', '.'),
         # include icons and splash images
         ('assets/icons/*', 'assets/icons'),

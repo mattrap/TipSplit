@@ -26,16 +26,21 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
-      - name: Read version from version.py
+      - name: Set version from tag
         id: v
         shell: pwsh
         run: |
-          $c = Get-Content -Raw version.py
-          if ($c -match 'APP_VERSION\s*=\s*"([0-9\.]+)"') {
-            "ver=$($Matches[1])" >> $env:GITHUB_OUTPUT
-          } else {
-            throw "APP_VERSION not found in version.py"
+          $tag = "${{ github.ref_name }}"
+          if ([string]::IsNullOrWhiteSpace($tag)) {
+            throw "Tag not found."
           }
+          $ver = $tag.TrimStart("v")
+          @"
+# version.py
+APP_NAME = "TipSplit"
+APP_VERSION = "$ver"
+"@ | Set-Content -NoNewline -Encoding utf8 version.py
+          "ver=$ver" >> $env:GITHUB_OUTPUT
 
       - name: Verify bundle layout (defaults, assets)
         shell: pwsh
@@ -53,12 +58,7 @@ jobs:
       - name: Build EXE (PyInstaller)
         shell: pwsh
         run: |
-          # On Windows, --add-data uses "SRC;DEST"
-          pyinstaller --noconsole --name TipSplit `
-            --add-data "defaults;defaults" `
-            --add-data "assets;assets" `
-            --add-data "supabase.env;." `
-            MainApp.py
+          pyinstaller --noconsole --name TipSplit --noconfirm MainApp.spec
 
       - name: Install Inno Setup
         shell: pwsh

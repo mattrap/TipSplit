@@ -11,6 +11,7 @@ DMG_FIXED="${APP_NAME}-mac.dmg"
 
 rm -rf "dist/${APP_NAME}.app" "dist/${APP_NAME}" "dist/${DMG_NAME}" "dist/dmg"
 
+python3 scripts/set_version.py
 python3 -m PyInstaller --noconfirm MainApp.spec
 
 if [[ ! -d "dist/${APP_NAME}.app" ]]; then

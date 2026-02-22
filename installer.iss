@@ -24,6 +24,8 @@ WizardStyle=modern
 ArchitecturesInstallIn64BitMode=x64
 PrivilegesRequired=admin
 PrivilegesRequiredOverridesAllowed=dialog
+CloseApplications=yes
+RestartApplications=yes
 UninstallDisplayIcon={app}\{#MyAppExeName}
 ; Your icon lives here:
 SetupIconFile=assets\icons\app_icon.ico

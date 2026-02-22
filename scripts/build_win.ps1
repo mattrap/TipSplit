@@ -10,6 +10,7 @@ if ([string]::IsNullOrWhiteSpace($version)) {
     throw "Could not determine version."
 }
 
+python scripts/set_version.py
 python -m PyInstaller --noconfirm MainApp.spec
 
 $iscc = $env:ISCC_PATH
