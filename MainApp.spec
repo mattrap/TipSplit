@@ -3,6 +3,7 @@
 block_cipher = None
 
 from PyInstaller.utils.hooks import collect_data_files
+from sys import platform
 
 a = Analysis(
     ['MainApp.py'],
@@ -46,5 +47,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='assets/icons/app_icon.ico',
+    icon='assets/icons/app_icon.icns' if platform == 'darwin' else 'assets/icons/app_icon.ico',
 )
