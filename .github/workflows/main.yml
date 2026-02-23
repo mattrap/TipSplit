@@ -126,7 +126,7 @@ jobs:
 
       - name: Build DMG (PyInstaller + hdiutil)
         run: |
-          scripts/build_mac.sh
+          bash scripts/build_mac.sh
 
       - name: Upload mac artifact
         uses: actions/upload-artifact@v4
