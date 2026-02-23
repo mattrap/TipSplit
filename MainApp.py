@@ -14,7 +14,7 @@ from tkinter import messagebox
 from Pay import PayTab
 from AppConfig import ensure_pdf_dir_selected, get_user_data_dir
 from updater import maybe_auto_check
-from version import APP_NAME, APP_VERSION
+from app_version import APP_NAME, APP_VERSION
 from icon_helper import set_app_icon
 from ui_scale import init_scaling, enable_high_dpi_awareness
 from access_control import AccessController, AccessError

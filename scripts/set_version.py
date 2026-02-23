@@ -3,7 +3,8 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION_FILE = ROOT / "version.py"
+VERSION_FILE = ROOT / "app_version.py"
+LEGACY_VERSION_FILE = ROOT / "version.py"
 APP_NAME = "TipSplit"
 
 
@@ -27,8 +28,20 @@ def main() -> None:
     if not version:
         raise SystemExit("No git tag found. Tag a release like v1.2.3.")
 
-    content = f"# version.py\nAPP_NAME = \"{APP_NAME}\"\nAPP_VERSION = \"{version}\"\n"
+    content = (
+        '"""Application identity and semantic version."""\n\n'
+        f'APP_NAME = "{APP_NAME}"\n'
+        f'APP_VERSION = "{version}"\n'
+    )
     VERSION_FILE.write_text(content, encoding="utf-8")
+
+    # Keep a compatibility shim for older imports.
+    LEGACY_VERSION_FILE.write_text(
+        '"""Backward-compatible shim for legacy imports."""\n\n'
+        'from app_version import APP_NAME, APP_VERSION\n\n'
+        '__all__ = ["APP_NAME", "APP_VERSION"]\n',
+        encoding="utf-8",
+    )
     print(version)
 
 

@@ -20,7 +20,10 @@ def _git_tag() -> str | None:
         return None
 
 def _version_py() -> str | None:
-    version_path = _repo_root() / "version.py"
+    root = _repo_root()
+    version_path = root / "app_version.py"
+    if not version_path.exists():
+        version_path = root / "version.py"
     if not version_path.exists():
         return None
     namespace: dict[str, object] = {}

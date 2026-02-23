@@ -13,7 +13,7 @@ from AppConfig import (
 )
 
 from updater import check_for_update
-from version import APP_NAME, APP_VERSION
+from app_version import APP_NAME, APP_VERSION
 from datetime import datetime
 from distribution_settings import open_distribution_settings
 from payroll.ui import open_payroll_settings_dialog, open_pay_calendar_dialog

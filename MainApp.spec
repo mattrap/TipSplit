@@ -48,12 +48,19 @@ exe = EXE(
     icon='assets/icons/app_icon.icns' if platform == 'darwin' else 'assets/icons/app_icon.ico',
 )
 
-coll = COLLECT(
-    exe,
-    a.binaries,
-    a.datas,
-    strip=False,
-    upx=True,
-    upx_exclude=[],
-    name='TipSplit',
-)
+if platform == 'darwin':
+    app = BUNDLE(
+        exe,
+        name='TipSplit.app',
+        icon='assets/icons/app_icon.icns',
+    )
+else:
+    coll = COLLECT(
+        exe,
+        a.binaries,
+        a.datas,
+        strip=False,
+        upx=True,
+        upx_exclude=[],
+        name='TipSplit',
+    )

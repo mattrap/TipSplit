@@ -14,6 +14,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -80,7 +82,7 @@ jobs:
           path: dist/installer/TipSplit-Setup.exe
 
   release:
-    needs: build
+    needs: [build, mac]
     runs-on: ubuntu-latest
     steps:
       - name: Download artifact
@@ -88,10 +90,47 @@ jobs:
         with:
           name: TipSplit-Setup
           path: .
+      - name: Download mac artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: TipSplit-mac
+          path: .
 
       - name: Attach to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: TipSplit-Setup.exe
+          files: |
+            TipSplit-Setup.exe
+            TipSplit-mac.dmg
           draft: false
           prerelease: false
+
+  mac:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build DMG (PyInstaller + hdiutil)
+        run: |
+          scripts/build_mac.sh
+
+      - name: Upload mac artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TipSplit-mac
+          if-no-files-found: error
+          path: dist/TipSplit-mac.dmg
