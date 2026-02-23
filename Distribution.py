@@ -1,7 +1,6 @@
 import math
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
-from PayPeriods import get_selected_period
 from Export import export_distribution_from_tab
 from datetime import datetime
 from ui_scale import scale
@@ -16,6 +15,7 @@ class DistributionTab:
             raise ValueError("shared_data must be provided to DistributionTab")
         self.shared_data = shared_data
         self.selected_date_str = ""
+        self.current_period = None
         self._dist_settings = get_distribution_settings()
 
         self.set_theme_colors()
@@ -391,19 +391,22 @@ class DistributionTab:
         if not hasattr(self, "pay_period_label"):
             return
 
+        period = self.current_period or self._resolve_period_for_selected_date()
+        if period:
+            self.current_period = period
+            label = period.get("range_label") or ""
+            display = period.get("display_id") or ""
+            if label:
+                self.pay_period_label.config(text=f"Période de paye {display}: {label}")
+            else:
+                self.pay_period_label.config(text=f"Période de paye: {display}")
+            return
+
         if not self.selected_date_str:
             self.pay_period_label.config(text="Période de paye: ❌ date invalide")
             return
 
-        try:
-            selected_dt = datetime.strptime(self.selected_date_str, "%d-%m-%Y")
-            period_key, period_data = get_selected_period(selected_dt)
-            if period_data:
-                self.pay_period_label.config(text=f"Période de paye du: {period_data['range']}")
-            else:
-                self.pay_period_label.config(text="Période de paye: ❌ hors plage")
-        except Exception:
-            self.pay_period_label.config(text="Période de paye: ❌ erreur de date")
+        self.pay_period_label.config(text="Période de paye: ❌ introuvable")
 
     def set_shift(self, value):
         self.shift_var.set(value)
@@ -485,13 +488,14 @@ class DistributionTab:
         return all(is_valid(e) for e in all_entries)
 
     def update_export_button_state(self):
-        if self.inputs_valid():
-            self.export_button.config(state=NORMAL)
-        else:
-            self.export_button.config(state=DISABLED)
+        ready = self.inputs_valid() and self.get_active_pay_period() is not None
+        self.export_button.config(state=NORMAL if ready else DISABLED)
 
     def confirm_export(self):
         if not self.inputs_valid():
+            return
+        if not self.get_active_pay_period():
+            messagebox.showerror("Période manquante", "Impossible de déterminer la période de paye.")
             return
         if messagebox.askyesno("Confirmation", "Êtes-vous sûr que la distribution est complète ?"):
             export_distribution_from_tab(self)
@@ -565,6 +569,40 @@ class DistributionTab:
             "tips_due": tips_due,
             "ventes_nourriture": ventes_nourriture,
         }
+
+    def _get_payroll_context(self):
+        try:
+            return self.shared_data.get("payroll", {}).get("context")
+        except Exception:
+            return None
+
+    def _resolve_period_for_selected_date(self):
+        if not self.selected_date_str:
+            return None
+        context = self._get_payroll_context()
+        if not context:
+            return None
+        try:
+            target_date = datetime.strptime(self.selected_date_str, "%d-%m-%Y").date()
+        except ValueError:
+            return None
+        try:
+            return context.period_for_local_date(target_date)
+        except Exception:
+            return None
+
+    def get_active_pay_period(self):
+        if self.current_period:
+            return self.current_period
+        period = self._resolve_period_for_selected_date()
+        if period:
+            self.current_period = period
+        return period
+
+    def on_payroll_context_updated(self):
+        self.current_period = self._resolve_period_for_selected_date()
+        self.update_pay_period_display()
+        self.update_export_button_state()
 
     def calculate_cuisine_distribution(self, ventes_nourriture, depot_net):
         """Determine how cuisine amount is distributed (cash or depot)."""
@@ -830,6 +868,11 @@ class DistributionTab:
         selected_date = transfer_data.get("date", "??-??-????")
         
         self.selected_date_str = selected_date
+        transfer_period = transfer_data.get("pay_period")
+        if transfer_period:
+            self.current_period = transfer_period
+        else:
+            self.current_period = self._resolve_period_for_selected_date()
 
         organized_data = []
         last_section = None

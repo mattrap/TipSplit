@@ -1,3 +1,4 @@
+import logging
 import os, sys
 import tkinter as tk
 from PIL import Image, ImageTk  # pillow is in requirements
@@ -9,16 +10,19 @@ from Master import MasterSheet
 from TimeSheet import TimeSheet
 from Distribution import DistributionTab
 from AnalyseTab import AnalyseTab
-from tkinter.simpledialog import askstring
 from tkinter import messagebox
 from Pay import PayTab
-from AppConfig import ensure_pdf_dir_selected, ensure_default_employee_files
+from AppConfig import ensure_pdf_dir_selected, get_user_data_dir
 from updater import maybe_auto_check
-from version import APP_NAME, APP_VERSION
+from app_version import APP_NAME, APP_VERSION
 from icon_helper import set_app_icon
 from ui_scale import init_scaling, enable_high_dpi_awareness
 from access_control import AccessController, AccessError
 from ui.login_dialog import LoginDialog
+from db.db_manager import init_db, get_db_path
+from payroll.bootstrap import ensure_default_schedule
+from payroll.context import PayrollContext
+from payroll.pay_calendar import PayCalendarService, PayCalendarError
 
 
 
@@ -111,11 +115,50 @@ def fit_to_screen(win):
         win.geometry(f"{sw}x{sh}+0+0")
 
 
+def _configure_logging():
+    log_dir = os.path.join(get_user_data_dir(), "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    log_path = os.path.join(log_dir, "tipsplit.log")
+    if not logging.getLogger().handlers:
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+            handlers=[
+                logging.FileHandler(log_path, encoding="utf-8"),
+                logging.StreamHandler(),
+            ],
+        )
+    logging.info("Journalisation initialisée (%s)", log_path)
+
+
+def _bootstrap_database(root=None) -> bool:
+    try:
+        init_db()
+        try:
+            ensure_default_schedule()
+        except Exception:
+            logging.exception("Impossible de préparer l’horaire de paie par défaut")
+        logging.info("Base de données prête (%s)", get_db_path())
+        return True
+    except Exception as exc:
+        logging.exception("Échec de l’initialisation de la base de données")
+        if root is None:
+            tmp_root = tk.Tk()
+            tmp_root.withdraw()
+        else:
+            tmp_root = root
+        messagebox.showerror(
+            "Erreur critique",
+            f"Impossible d’initialiser la base de données locale.\n\n{exc}",
+            parent=tmp_root,
+        )
+        if root is None and tmp_root is not None:
+            tmp_root.destroy()
+        return False
+
+
 class TipSplitApp:
     def __init__(self, root, controller: AccessController, user_role: str = "user"):
-        # --- Seed backend employee JSONs on first run (never overwrites valid files) ---
-        ensure_default_employee_files()
-
         self.root = root
         self.controller = controller
         self.user_role = user_role or "user"
@@ -140,6 +183,9 @@ class TipSplitApp:
         # Initialize shared data with validation
         self.shared_data = {}
         self._initialize_shared_data()
+        self.pay_calendar_service = PayCalendarService()
+        self.payroll_context = PayrollContext(self.pay_calendar_service)
+        self._initialize_payroll_context()
 
         self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(fill=BOTH, expand=True)
@@ -168,10 +214,9 @@ class TipSplitApp:
         try:
             # Initialize transfer data structure
             self.shared_data.setdefault("transfer", {})
-            
-            # Initialize other shared data structures
             self.shared_data.setdefault("employee_data", {})
             self.shared_data.setdefault("pay_periods", {})
+            self.shared_data.setdefault("payroll", {})
             
             # Validate existing data if any
             self._validate_shared_data()
@@ -182,7 +227,8 @@ class TipSplitApp:
             self.shared_data = {
                 "transfer": {},
                 "employee_data": {},
-                "pay_periods": {}
+                "pay_periods": {},
+                "payroll": {},
             }
 
     def _validate_shared_data(self):
@@ -208,6 +254,62 @@ class TipSplitApp:
                 
         except Exception as e:
             print(f"⚠️ Warning: Error validating shared data: {e}")
+
+    def _initialize_payroll_context(self):
+        payroll_bucket = self.shared_data.setdefault("payroll", {})
+        try:
+            schedule = self.payroll_context.refresh_schedule()
+            self.payroll_context.ensure_window()
+            payroll_bucket["context"] = self.payroll_context
+            payroll_bucket["schedule"] = schedule
+            payroll_bucket.pop("error", None)
+        except PayCalendarError as exc:
+            logging.error("Impossible d'initialiser l'horaire de paie: %s", exc)
+            payroll_bucket["error"] = str(exc)
+
+    def refresh_payroll_context(self) -> bool:
+        payroll_bucket = self.shared_data.setdefault("payroll", {})
+        try:
+            schedule = self.payroll_context.refresh_schedule()
+            self.payroll_context.ensure_window()
+            payroll_bucket["context"] = self.payroll_context
+            payroll_bucket["schedule"] = schedule
+            payroll_bucket.pop("error", None)
+            self._notify_payroll_consumers()
+            return True
+        except PayCalendarError as exc:
+            payroll_bucket["error"] = str(exc)
+            logging.error("Mise à jour des périodes échouée: %s", exc)
+            messagebox.showerror("Périodes de paye", f"Impossible de mettre à jour les périodes: {exc}")
+            return False
+
+    def _notify_payroll_consumers(self):
+        try:
+            self.shared_data.setdefault("payroll", {})["context"] = self.payroll_context
+        except Exception:
+            pass
+        if hasattr(self, "distribution_tab") and hasattr(self.distribution_tab, "on_payroll_context_updated"):
+            try:
+                self.distribution_tab.on_payroll_context_updated()
+            except Exception:
+                logging.exception("Erreur lors de la mise à jour de l'onglet Distribution")
+        if hasattr(self, "timesheet_tab") and hasattr(self.timesheet_tab, "on_payroll_context_updated"):
+            try:
+                self.timesheet_tab.on_payroll_context_updated()
+            except Exception:
+                logging.exception("Erreur lors de la mise à jour de l'onglet TimeSheet")
+
+    def get_payroll_context(self):
+        return getattr(self, "payroll_context", None)
+
+    def _role_slug(self) -> str:
+        return (self.user_role or "user").strip().lower()
+
+    def is_manager(self) -> bool:
+        return self._role_slug() in {"admin", "owner", "manager"}
+
+    def is_admin(self) -> bool:
+        return self._role_slug() in {"admin", "owner"}
 
     def _safe_shared_data_access(self, key, default=None):
         """Safely access shared data with error handling"""
@@ -259,12 +361,12 @@ class TipSplitApp:
     def create_pay_tab(self):
         self.pay_frame = ttk.Frame(self.notebook)
         self.notebook.add(self.pay_frame, text="Pay")
-        self.pay_tab = PayTab(self.pay_frame)
+        self.pay_tab = PayTab(self.pay_frame, shared_data=self.shared_data)
 
     def create_analyse_tab(self):
         self.analyse_frame = ttk.Frame(self.notebook)
         self.notebook.add(self.analyse_frame, text="Analyse")
-        self.analyse_tab = AnalyseTab(self.analyse_frame)
+        self.analyse_tab = AnalyseTab(self.analyse_frame, shared_data=self.shared_data)
 
     def show_analyse_tab(self):
         if not hasattr(self, "analyse_tab"):
@@ -273,40 +375,99 @@ class TipSplitApp:
             self.notebook.add(self.analyse_frame, text="Analyse")
         self.notebook.select(self.analyse_frame)
 
-    def authenticate_and_show_master(self):
+    def require_manager_password(self, purpose: str = "cette action") -> bool:
         if not getattr(self, "controller", None):
             messagebox.showerror("Erreur", "Contrôleur d'accès indisponible.")
-            return
+            return False
 
         email = self.controller.email or self.user_email
         if not email:
             messagebox.showerror("Erreur", "Identité de l'utilisateur introuvable.")
-            return
+            return False
 
-        password = askstring(
+        password = self._prompt_password(
             "🔒 Accès restreint",
             "Entrez le mot de passe de votre compte :",
-            show="*",
         )
         if password is None:
-            return
+            return False
         if password == "":
-            messagebox.showerror("Erreur", "Mot de passe requis pour accéder à la feuille maître.")
-            return
+            messagebox.showerror("Erreur", "Mot de passe requis pour poursuivre.")
+            return False
 
         try:
             state = self.controller.sign_in(email, password)
         except AccessError as exc:
             messagebox.showerror("Erreur", str(exc))
-            return
+            return False
         except Exception as exc:
             messagebox.showerror("Erreur", f"Impossible de vérifier votre accès : {exc}")
-            return
+            return False
 
         self.user_role = state.role or self.user_role
         self.user_email = state.email or email
         if hasattr(self, "role_var"):
             self.role_var.set(f"Role: {self.user_role}")
+        return True
+
+    def _prompt_password(self, title: str, prompt: str):
+        dialog = ttk.Toplevel(self.root)
+        dialog.title(title)
+        dialog.resizable(False, False)
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        frame = ttk.Frame(dialog, padding=15)
+        frame.grid(row=0, column=0, sticky=NSEW)
+        frame.columnconfigure(0, weight=1)
+
+        ttk.Label(frame, text=prompt).grid(row=0, column=0, sticky=W)
+
+        value_var = tk.StringVar()
+        entry = ttk.Entry(frame, textvariable=value_var, show="*", width=36)
+        entry.grid(row=1, column=0, sticky=EW, pady=(6, 12))
+
+        btns = ttk.Frame(frame)
+        btns.grid(row=2, column=0, sticky=EW)
+        btns.columnconfigure(0, weight=1, uniform="auth-btn")
+        btns.columnconfigure(1, weight=1, uniform="auth-btn")
+
+        result = {"value": None}
+
+        def on_ok():
+            result["value"] = value_var.get()
+            dialog.destroy()
+
+        def on_cancel():
+            dialog.destroy()
+
+        ok_btn = ttk.Button(btns, text="OK", bootstyle="primary", command=on_ok)
+        cancel_btn = ttk.Button(btns, text="Annuler", bootstyle="danger", command=on_cancel)
+        ok_btn.grid(row=0, column=0, sticky=EW, padx=(0, 8))
+        cancel_btn.grid(row=0, column=1, sticky=EW)
+
+        dialog.bind("<Return>", lambda _event: on_ok())
+        dialog.bind("<Escape>", lambda _event: on_cancel())
+        dialog.protocol("WM_DELETE_WINDOW", on_cancel)
+
+        dialog.update_idletasks()
+        parent_x = self.root.winfo_rootx()
+        parent_y = self.root.winfo_rooty()
+        parent_w = self.root.winfo_width()
+        parent_h = self.root.winfo_height()
+        dlg_w = dialog.winfo_width()
+        dlg_h = dialog.winfo_height()
+        x = parent_x + max(0, (parent_w - dlg_w) // 2)
+        y = parent_y + max(0, (parent_h - dlg_h) // 2)
+        dialog.geometry(f"+{x}+{y}")
+
+        entry.focus_set()
+        dialog.wait_window()
+        return result["value"]
+
+    def authenticate_and_show_master(self):
+        if not self.require_manager_password("accéder à la feuille maître"):
+            return
         self.show_master_tab()
 
     def show_master_tab(self):
@@ -318,7 +479,7 @@ class TipSplitApp:
         if not hasattr(self, "json_viewer_tab"):
             from JsonViewerTab import JsonViewerTab
             self.json_viewer_frame = ttk.Frame(self.notebook)
-            self.json_viewer_tab = JsonViewerTab(self.json_viewer_frame)
+            self.json_viewer_tab = JsonViewerTab(self.json_viewer_frame, shared_data=self.shared_data)
             self.notebook.add(self.json_viewer_frame, text="Confirmer les distribution")
         elif str(self.json_viewer_frame) not in self.notebook.tabs():
             self.notebook.add(self.json_viewer_frame, text="Confrimer les distribution")
@@ -327,7 +488,7 @@ class TipSplitApp:
     def show_pay_tab(self):
         if not hasattr(self, "pay_tab"):
             self.pay_frame = ttk.Frame(self.notebook)
-            self.pay_tab = PayTab(self.pay_frame)
+            self.pay_tab = PayTab(self.pay_frame, shared_data=self.shared_data)
             self.notebook.add(self.pay_frame, text="Pay")
         elif str(self.pay_frame) not in self.notebook.tabs():
             self.notebook.add(self.pay_frame, text="Pay")
@@ -345,7 +506,10 @@ class TipSplitApp:
 
 
 def main():
+    _configure_logging()
     enable_high_dpi_awareness()
+    if not _bootstrap_database():
+        return
     try:
         controller = AccessController()
     except AccessError as exc:

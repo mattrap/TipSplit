@@ -1,18 +1,25 @@
 from datetime import datetime
-from PayPeriods import get_selected_period
 from reportlab.lib.units import inch
 from reportlab.lib.pagesizes import letter, landscape
 from reportlab.pdfgen import canvas
+import tkinter as tk
 from tkinter import messagebox
+import ttkbootstrap as ttk
 import os
-import json
 import subprocess
 import traceback
 import sys
 import platform
 from typing import Dict, List
-from AppConfig import get_pdf_dir, get_backend_dir
+import sqlite3
+from AppConfig import get_pdf_dir
 import time
+from db.distributions_repo import (
+    create_distribution,
+    delete_distribution,
+    find_distribution_by_key,
+    next_shift_instance,
+)
 
 # -------------------- Utility --------------------
 def get_unique_filename(base_path):
@@ -30,6 +37,58 @@ def _ensure_dir(path: str):
     if path and not os.path.exists(path):
         os.makedirs(path, exist_ok=True)
 
+
+def _confirm_action(message: str) -> bool:
+    return messagebox.askyesno("Confirmation", message)
+
+
+def _ask_duplicate_action(shift: str, next_instance: int) -> str | None:
+    """
+    Return "replace", "new", or None (cancel).
+    """
+    result = {"value": None}
+    parent = tk._default_root
+    top = ttk.Toplevel(parent) if parent else ttk.Toplevel()
+    top.title("Distribution existante")
+    top.resizable(False, False)
+    if parent:
+        top.transient(parent)
+    top.grab_set()
+
+    frame = ttk.Frame(top, padding=(16, 12))
+    frame.pack(fill="both", expand=True)
+    msg = (
+        "Il y a déjà une distribution enregistrée pour cette journée et ce shift.\n"
+        "Voulez vous la remplacer avec celle ci ou annuler cette distribution ?"
+    )
+    ttk.Label(frame, text=msg, justify="left", wraplength=420).pack(anchor="w")
+
+    btns = ttk.Frame(frame)
+    btns.pack(anchor="e", pady=(12, 0))
+
+    def choose_replace():
+        if _confirm_action("Êtes vous sur de vouloir remplacer cette distribution ?"):
+            result["value"] = "replace"
+            top.destroy()
+
+    def choose_new():
+        label = f"{shift} #{next_instance}"
+        if _confirm_action(f"Êtes vous sur de vouloir créer une nouvelle instance ({label}) ?"):
+            result["value"] = "new"
+            top.destroy()
+
+    def choose_cancel():
+        if _confirm_action("Êtes vous sur de vouloir annuler cette distribution ?"):
+            result["value"] = None
+            top.destroy()
+
+    ttk.Button(btns, text="Créer une nouvelle instance", bootstyle="primary", command=choose_new).pack(side="left", padx=(0, 6))
+    ttk.Button(btns, text="Remplacer", bootstyle="warning", command=choose_replace).pack(side="left", padx=(0, 6))
+    ttk.Button(btns, text="Annuler", bootstyle="danger", command=choose_cancel).pack(side="left")
+
+    top.wait_window()
+    return result["value"]
+
 def _fallback_pdf_root() -> str:
     """Safe fallback if user skipped choosing a folder."""
     return os.path.expanduser("~/TipSplitExports")
@@ -38,9 +97,24 @@ def _pdf_root() -> str:
     """User-chosen PDF export root, or a safe fallback."""
     return get_pdf_dir() or _fallback_pdf_root()
 
-def _period_folder_from_tuple(pay_period_tuple: tuple) -> str:
-    start, end = pay_period_tuple
-    return f"{start.replace('/', '-')}_au_{end.replace('/', '-')}"
+def _safe_slug(value: str) -> str:
+    return (value or "").replace("/", "-").replace(":", "-")
+
+def _period_folder_from_info(period_info: dict) -> str:
+    if not period_info:
+        return "periode_inconnue"
+    slug = period_info.get("folder_slug")
+    if slug:
+        return _safe_slug(slug)
+    display_id = period_info.get("display_id") or "periode"
+    start_iso = period_info.get("start_date_iso") or period_info.get("start_label") or ""
+    end_iso = period_info.get("end_date_iso") or period_info.get("end_label") or ""
+    parts = [_safe_slug(display_id)]
+    if start_iso:
+        parts.append(_safe_slug(start_iso))
+    if end_iso:
+        parts.append(_safe_slug(end_iso))
+    return "_".join(parts)
 
 def _period_folder_from_label(period_label: str) -> str:
     """
@@ -60,13 +134,13 @@ def _period_folder_from_label(period_label: str) -> str:
     b = b.strip().replace("/", "-")
     return f"{a}_au_{b}"
 
-def _pdf_period_dir(category: str, pay_period_tuple: tuple) -> str:
+def _pdf_period_dir(category: str, period_info: dict) -> str:
     """
     category: 'daily' -> Résumé de shift
               'pay'   -> Paye
     """
     root = _pdf_root()
-    period_folder = _period_folder_from_tuple(pay_period_tuple)
+    period_folder = _period_folder_from_info(period_info)
     if category == "daily":
         target = os.path.join(root, "Résumé de shift", period_folder)
     else:
@@ -74,43 +148,25 @@ def _pdf_period_dir(category: str, pay_period_tuple: tuple) -> str:
     _ensure_dir(target)
     return target
 
-def _json_daily_period_dir(pay_period_tuple: tuple) -> str:
-    """
-    NEW STRUCTURE:
-      Daily distribution JSONs:
-        {JSON_ROOT}/daily/{pay_period}/unconfirmed/...
-    Where JSON_ROOT = get_backend_dir()
-    """
-    start, end = pay_period_tuple
-    period_folder = f"{start.replace('/', '-')}_au_{end.replace('/', '-')}"
-    target = os.path.join(get_backend_dir(), "daily", period_folder, "unconfirmed")
-    _ensure_dir(target)
-    return target
+
+def _period_label_dates(period_info: dict) -> tuple[str, str]:
+    info = period_info or {}
+    start = info.get("start_label") or info.get("start_date_iso") or ""
+    end = info.get("end_label") or info.get("end_date_iso") or ""
+    return start, end
+
+def _period_metadata(period_info: dict) -> dict:
+    info = period_info or {}
+    return {
+        "id": info.get("id"),
+        "display_id": info.get("display_id"),
+        "start_date": info.get("start_date_iso") or info.get("start_label"),
+        "end_date": info.get("end_date_iso") or info.get("end_label"),
+        "pay_date": info.get("pay_date_local"),
+        "status": info.get("status"),
+    }
 
 # -------------- Logging helpers --------------
-def _log_dir() -> str:
-    """Ensure and return the backend logs directory."""
-    root = get_backend_dir()
-    path = os.path.join(root, "logs")
-    _ensure_dir(path)
-    return path
-
-def _append_distribution_log(record: dict):
-    """
-    Append a single JSON line capturing a distribution export snapshot.
-    Never raises: failures are swallowed to not block export.
-    """
-    try:
-        log_path = os.path.join(_log_dir(), "distribution_exports.log")
-        # Enrich with a server-side timestamp if not provided
-        record = dict(record or {})
-        record.setdefault("logged_at", time.strftime("%Y-%m-%dT%H:%M:%S"))
-        with open(log_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(record, ensure_ascii=False))
-            f.write("\n")
-    except Exception:
-        # Intentionally ignore logging failures
-        pass
 
 # helper
 def open_file_cross_platform(path):
@@ -305,16 +361,30 @@ def draw_declaration_body(c, y, entries_decl, height):
     return y
 
 # -------------------- Export Functions (Distribution+Declaration) --------------------
-def pdf_export(date, shift, pay_period, fields, entries_dist, entries_decl, distribution_tab, decl_fields_raw, json_filename):
+def _format_recorded_date(created_at: str) -> str:
+    if not created_at:
+        return ""
+    try:
+        dt = datetime.fromisoformat(created_at)
+        if dt.tzinfo is not None:
+            dt = dt.astimezone()
+        return dt.strftime("%Y-%m-%d")
+    except Exception:
+        created_at = str(created_at)
+        return created_at.split("T", 1)[0] if "T" in created_at else created_at
+
+
+def pdf_export(date, shift, period_info, fields, entries_dist, entries_decl, distribution_tab, decl_fields_raw, dist_ref, recorded_at, shift_instance: int = 1):
     """
     Create a 2-page PDF:
       - Page 1: Distribution
       - Page 2: Declaration
-    The JSON filename that corresponds to this export is printed under the pay-period line on both pages.
+    The distribution reference and recorded date are printed under the pay-period line on both pages.
     PDF is saved under: {PDF_ROOT}/Résumé de shift/{period}/...
     """
-    pdf_dir = _pdf_period_dir("daily", pay_period)
-    base_pdf_path = os.path.join(pdf_dir, f"{date}-{shift}_distribution.pdf")
+    pdf_dir = _pdf_period_dir("daily", period_info)
+    inst_suffix = f"-{shift_instance}" if shift_instance and shift_instance > 1 else ""
+    base_pdf_path = os.path.join(pdf_dir, f"{date}-{shift}{inst_suffix}_distribution.pdf")
     final_pdf_path = get_unique_filename(base_pdf_path)
 
     c = canvas.Canvas(final_pdf_path, pagesize=letter)
@@ -323,14 +393,22 @@ def pdf_export(date, shift, pay_period, fields, entries_dist, entries_decl, dist
     # -------------- PAGE 1: Distribution --------------
     y = height - inch
     c.setFont("Helvetica-Bold", 14)
-    c.drawString(50, y, f"Résumé de la distribution — {date} — {shift}")
+    shift_label = f"{shift} #{shift_instance}" if shift_instance and shift_instance > 1 else shift
+    c.drawString(50, y, f"Résumé de la distribution — {date} — {shift_label}")
     y -= 20
+    start_label, end_label = _period_label_dates(period_info)
     c.setFont("Helvetica", 11)
-    c.drawString(50, y, f"Période de paye: {pay_period[0]} au {pay_period[1]}")
+    if start_label and end_label:
+        c.drawString(50, y, f"Période de paye: {start_label} au {end_label}")
+    else:
+        c.drawString(50, y, "Période de paye: (inconnue)")
     y -= 18
     c.setFont("Helvetica-Oblique", 10)
-    c.drawString(50, y, f"Fichier JSON: {json_filename}")
-    y -= 30
+    c.drawString(50, y, f"Référence distribution: {dist_ref}")
+    y -= 14
+    recorded_label = _format_recorded_date(recorded_at)
+    c.drawString(50, y, f"Date d'enregistrement: {recorded_label or '—'}")
+    y -= 16
 
     y = draw_input_section(c, y, fields)
     y = draw_table_header(c, y)
@@ -342,14 +420,19 @@ def pdf_export(date, shift, pay_period, fields, entries_dist, entries_decl, dist
     c.showPage()
     y = height - inch
     c.setFont("Helvetica-Bold", 14)
-    c.drawString(50, y, f"Déclaration — {date} — {shift}")
+    c.drawString(50, y, f"Déclaration — {date} — {shift_label}")
     y -= 20
     c.setFont("Helvetica", 11)
-    c.drawString(50, y, f"Période de paye: {pay_period[0]} au {pay_period[1]}")
+    if start_label and end_label:
+        c.drawString(50, y, f"Période de paye: {start_label} au {end_label}")
+    else:
+        c.drawString(50, y, "Période de paye: (inconnue)")
     y -= 18
     c.setFont("Helvetica-Oblique", 10)
-    c.drawString(50, y, f"Fichier JSON: {json_filename}")
-    y -= 30
+    c.drawString(50, y, f"Référence distribution: {dist_ref}")
+    y -= 14
+    c.drawString(50, y, f"Date d'enregistrement: {recorded_label or '—'}")
+    y -= 16
 
     decl_vals = distribution_tab.declaration_net_values()
     ventes_declarees = decl_vals.get("ventes_declarees", 0.0)
@@ -361,17 +444,21 @@ def pdf_export(date, shift, pay_period, fields, entries_dist, entries_decl, dist
     c.save()
     return final_pdf_path
 
-def json_export(date, shift, pay_period, fields_sanitized, decl_fields_raw, entries_dist, entries_decl):
+def db_export(
+    date,
+    shift,
+    period_info,
+    fields_sanitized,
+    decl_fields_raw,
+    entries_dist,
+    entries_decl,
+    created_by: str = "",
+    shift_instance: int = 1,
+):
     """
-    Create the merged JSON for the distribution & declaration.
-    Returns (final_json_path, final_json_basename)
-    JSON is saved to the internal backend folder under the NEW structure:
-      {JSON_ROOT}/daily/{pay_period}/unconfirmed/{date}-{shift}_distribution.json
+    Persist the distribution & declaration into SQLite.
+    Returns (dist_id, dist_ref, created_at).
     """
-    json_dir = _json_daily_period_dir(pay_period)
-    base_json_path = os.path.join(json_dir, f"{date}-{shift}_distribution.json")
-    final_json_path = get_unique_filename(base_json_path)
-
     # map distribution rows by (employee_id, name)
     dist_map = {}
     for e in entries_dist:
@@ -387,7 +474,7 @@ def json_export(date, shift, pay_period, fields_sanitized, decl_fields_raw, entr
     merged_employees = []
     for e in entries_decl:
         if isinstance(e["name"], str) and e["name"].startswith("---"):
-            continue  # skip section headers in JSON
+            continue  # skip section headers
 
         key = (e["employee_id"], e["name"])
         base = dist_map.get(key, {})
@@ -403,7 +490,6 @@ def json_export(date, shift, pay_period, fields_sanitized, decl_fields_raw, entr
             "frais_admin": base.get("frais_admin", 0.0),
         }
 
-        # Service: include A, B, E, F. Bussboy: include D only.
         def _num_or_zero(val):
             return 0.0 if val in ("", None) else float(val)
 
@@ -414,30 +500,73 @@ def json_export(date, shift, pay_period, fields_sanitized, decl_fields_raw, entr
             emp["F"] = _num_or_zero(e.get("F"))
         elif section == "Bussboy":
             emp["D"] = _num_or_zero(e.get("D"))
-        # else: unknown section -> no extra declaration fields
 
         merged_employees.append(emp)
 
     decl_vals_out = {
-        "Ventes Totales": str(decl_fields_raw.get("Ventes Totales", "")),
-        "Clients": str(decl_fields_raw.get("Clients", "")),
-        "Tips due": str(decl_fields_raw.get("Tips due", "")),
-        "Ventes Nourriture": str(decl_fields_raw.get("Ventes Nourriture", "")),
+        "Ventes Totales": decl_fields_raw.get("Ventes Totales", ""),
+        "Clients": decl_fields_raw.get("Clients", ""),
+        "Tips due": decl_fields_raw.get("Tips due", ""),
+        "Ventes Nourriture": decl_fields_raw.get("Ventes Nourriture", ""),
     }
 
-    data = {
-        "date": date,
-        "shift": shift,
-        "pay_period": {"start": pay_period[0], "end": pay_period[1]},
-        "inputs": fields_sanitized,          # distribution inputs
-        "declaration_inputs": decl_vals_out, # raw declaration inputs
-        "employees": merged_employees
-    }
-
-    with open(final_json_path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4, ensure_ascii=False)
-
-    return final_json_path, os.path.basename(final_json_path)
+    try:
+        result = create_distribution(
+            pay_period_id=period_info.get("id"),
+            date_local=date,
+            shift=shift,
+            shift_instance=shift_instance,
+            inputs=fields_sanitized,
+            declaration_inputs=decl_vals_out,
+            employees=merged_employees,
+            created_by=created_by or "",
+        )
+    except sqlite3.IntegrityError as exc:
+        msg = str(exc)
+        if "UNIQUE constraint failed: distributions.pay_period_id, distributions.date_local, distributions.shift, distributions.shift_instance" in msg:
+            next_inst = next_shift_instance(
+                pay_period_id=period_info.get("id"),
+                date_local=date,
+                shift=shift,
+            )
+            action = _ask_duplicate_action(_safe_text(shift).upper(), next_inst)
+            if not action:
+                return None, None, None, None
+            if action == "replace":
+                existing = find_distribution_by_key(
+                    pay_period_id=period_info.get("id"),
+                    date_local=date,
+                    shift=shift,
+                    shift_instance=shift_instance,
+                )
+                if existing and existing.get("id"):
+                    delete_distribution(int(existing["id"]), actor=created_by or "")
+                result = create_distribution(
+                    pay_period_id=period_info.get("id"),
+                    date_local=date,
+                    shift=shift,
+                    shift_instance=shift_instance,
+                    inputs=fields_sanitized,
+                    declaration_inputs=decl_vals_out,
+                    employees=merged_employees,
+                    created_by=created_by or "",
+                )
+                return result["id"], result["dist_ref"], result.get("created_at", ""), shift_instance
+            elif action == "new":
+                result = create_distribution(
+                    pay_period_id=period_info.get("id"),
+                    date_local=date,
+                    shift=shift,
+                    shift_instance=next_inst,
+                    inputs=fields_sanitized,
+                    declaration_inputs=decl_vals_out,
+                    employees=merged_employees,
+                    created_by=created_by or "",
+                )
+                return result["id"], result["dist_ref"], result.get("created_at", ""), next_inst
+        else:
+            raise
+    return result["id"], result["dist_ref"], result.get("created_at", ""), shift_instance
 
 # ===================================================================== #
 #                     Employee Résumé + Booklet                         #
@@ -477,8 +606,13 @@ def _safe_text(x) -> str:
     return "" if x is None else str(x)
 
 def _safe_key(info: dict) -> str:
-    """Filename-safe employee key: prefer ID, else name."""
-    base = _safe_text(info.get("id") or info.get("name") or "employee")
+    """Filename-safe employee key: {employee_number} - {employee_name}."""
+    emp_id = _safe_text(info.get("id") or info.get("employee_id") or "").strip()
+    name = _safe_text(info.get("name") or "").strip()
+    if emp_id and name:
+        base = f"{emp_id} - {name}"
+    else:
+        base = emp_id or name or "employee"
     for ch in ["/", "\\", ":", "*", "?", "\"", "<", ">", "|"]:
         base = base.replace(ch, "_")
     return base.strip() or "employee"
@@ -554,10 +688,10 @@ def _draw_employee_pdf(out_path: str, period_label: str, info: dict):
     c.drawString(left, y, "DÉTAILLÉ:")
     y -= sec_title_gap
 
-    # columns: Date, Cash, Sur paye, Frais admin
+    # columns: Date, Cash, Sur paye, Frais admin, Total quart
     c.setFont("Helvetica-Bold", 10)
-    col_w_det = [150, 100, 110, 120]
-    headers_det = ["Date (quart)", "Cash", "Sur paye", "Frais admin"]
+    col_w_det = [150, 80, 90, 90, 90]
+    headers_det = ["Date (quart)", "Cash", "Sur paye", "Frais admin", "Total quart"]
     centers_det = _col_centers(left, col_w_det)
 
     # Header row (centered)
@@ -574,11 +708,13 @@ def _draw_employee_pdf(out_path: str, period_label: str, info: dict):
 
     for s in info.get("shifts", []):
         paginate_if_needed(c)
+        shift_total = float(s.get("cash") or 0.0) + float(s.get("sur_paye") or 0.0) + float(s.get("frais_admin") or 0.0)
         vals = [
             _safe_text(s.get("display_name") or s.get("date") or ""),
             _fmt_num(s.get("cash") or 0.0),
             _fmt_num(s.get("sur_paye") or 0.0),
             _fmt_num(s.get("frais_admin") or 0.0),
+            _fmt_num(shift_total),
         ]
         for cx, v in zip(centers_det, vals):
             c.drawCentredString(int(cx), int(y), v)
@@ -597,6 +733,8 @@ def _draw_employee_pdf(out_path: str, period_label: str, info: dict):
     c.drawCentredString(int(centers_det[1]), int(y), _fmt_num(total_cash))
     c.drawCentredString(int(centers_det[2]), int(y), _fmt_num(total_sur))
     c.drawCentredString(int(centers_det[3]), int(y), _fmt_num(total_admin))
+    grand_total = total_cash + total_sur + total_admin
+    c.drawCentredString(int(centers_det[4]), int(y), _fmt_num(grand_total))
     y -= sub_gap
 
     paginate_if_needed(c)
@@ -823,34 +961,25 @@ def export_distribution_from_tab(distribution_tab):
             })
 
         # Pay period
-        selected_dt = datetime.strptime(date, "%d-%m-%Y")
-        _, pay_period_data = get_selected_period(selected_dt)
-        start_str, end_str = pay_period_data["range"].split(" - ")
-        pay_period = (start_str, end_str)
+        period_info = None
+        if hasattr(distribution_tab, "get_active_pay_period"):
+            period_info = distribution_tab.get_active_pay_period()
+        if not period_info:
+            messagebox.showerror("Période introuvable", "Impossible de déterminer la période de paye pour cette date.")
+            return
 
-        # ---- Export JSON first to get its final filename (into backend DAILY) ----
-        json_path, json_filename = json_export(
-            date, shift, pay_period, sanitized_inputs, raw_decl_inputs, entries_dist, entries_decl
+        dist_id, dist_ref, created_at, shift_instance = db_export(
+            date, shift, period_info, sanitized_inputs, raw_decl_inputs, entries_dist, entries_decl,
+            created_by=getattr(distribution_tab, "current_user", "")
         )
+        if not dist_id:
+            # User chose to cancel the replacement
+            return
 
-        # ---- Append an audit log entry (append-only NDJSON) ----
-        _append_distribution_log({
-            "type": "distribution_export",
-            "date": date,
-            "shift": shift,
-            "pay_period": {"start": pay_period[0], "end": pay_period[1]},
-            "json_path": json_path,
-            "json_filename": json_filename,
-            "inputs": raw_inputs,                  # raw text as seen in UI
-            "declaration_inputs": raw_decl_inputs, # raw text as seen in UI
-            "entries_distribution": entries_dist,
-            "entries_declaration": entries_decl,
-        })
-
-        # ---- Export PDF, including the JSON filename on each page (into chosen PDF folder under Résumé de shift) ----
+        # ---- Export PDF, including the distribution reference and recorded date on each page ----
         pdf_path = pdf_export(
-            date, shift, pay_period, raw_inputs, entries_dist, entries_decl,
-            distribution_tab, raw_decl_inputs, json_filename
+            date, shift, period_info, raw_inputs, entries_dist, entries_decl,
+            distribution_tab, raw_decl_inputs, dist_ref, created_at, shift_instance
         )
 
         # Mark export success for progress UI (menu bar)
@@ -883,10 +1012,6 @@ PDF DESTINATIONS (user-visible):
 - Booklet via make_booklet():
     {PDF_ROOT}/Paye/{pay_period}/{booklet_name}.pdf
 
-JSON DESTINATIONS (internal backend only):
-- Daily distributions:
-    {JSON_ROOT}/daily/{pay_period}/unconfirmed/{date}-{shift}_distribution.json
-
-- Combined/employee summary JSONs (created by JsonViewerTab “Créer fichier combiné”):
-    {JSON_ROOT}/pay/{pay_period}/{pay_period}.Json
+DB DESTINATION (internal only):
+- SQLite database (tipsplit.db) under the app data directory.
 '''

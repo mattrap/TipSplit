@@ -1,7 +1,6 @@
-# TimeSheet.py — uses AppConfig-backed, writable employee files
+# TimeSheet.py — employees now fetched from the SQLite repository
 
-import json
-import os
+import logging
 from datetime import datetime
 
 import ttkbootstrap as ttk
@@ -13,17 +12,15 @@ from tkinter import END
 
 # Debug logging removed for production cleanliness
 
-# Use the centralized AppConfig helpers so paths work on all machines
-from AppConfig import ensure_employee_data_ready
+from db import employees_repo
 from ui_scale import scale
 from tree_utils import fit_columns
+
+logger = logging.getLogger("tipsplit.timesheet")
 
 
 class TimeSheet:
     def __init__(self, root, shared_data=None, reload_distribution_data=None):
-        # Ensure backend employee files exist and resolve their paths
-        self.service_file, self.bussboy_file = ensure_employee_data_ready()
-
         self.shared_data = shared_data or {}
         self.reload_distribution_data = reload_distribution_data
         self.root = root
@@ -164,17 +161,6 @@ class TimeSheet:
         )
         confirm_btn.pack(side=RIGHT)
 
-    # ---------- Data loading ----------
-    def _load_data_file(self, path):
-        try:
-            if os.path.exists(path):
-                with open(path, "r", encoding="utf-8") as f:
-                    return json.load(f)
-        except Exception:
-            # Corrupt or unreadable; treat as empty so UI still loads
-            pass
-        return []
-
     def reload(self):
         self._end_points_edit(commit=False)
         self.tree.delete(*self.tree.get_children())
@@ -185,14 +171,20 @@ class TimeSheet:
         self.original_points.clear()
         self.hovered_row = None
 
-        # Use backend-aware files
-        service_data = self._load_data_file(self.service_file)
+        try:
+            service_data = employees_repo.list_employees(role="service", active_only=True, order_by_points_desc=False)
+        except Exception as exc:
+            logger.exception("Erreur lors du chargement des serveurs")
+            service_data = []
         if service_data:
             self.tree.insert("", "end", values=("", "--- Service ---", "", "", "", "", ""), tags=("section",))
-            for row in service_data:
-                number = row[0] if len(row) > 0 else ""
-                name   = row[1] if len(row) > 1 else ""
-                points = row[2] if len(row) > 2 else 0
+            for emp in service_data:
+                number = emp.get("employee_number") or ""
+                name = emp.get("name") or ""
+                try:
+                    points = int(float(emp.get("points", 0)))
+                except (TypeError, ValueError):
+                    points = 0
                 row_id = self.tree.insert("", "end", values=(number, name, points, "🕒", "", "", ""), tags=("editable",))
                 self.punch_data[row_id] = {"in": "", "out": "", "total": 0.0}
                 try:
@@ -201,13 +193,20 @@ class TimeSheet:
                     self.original_points[row_id] = 0
             self.service_total_row = self.tree.insert("", "end", values=("", "Total Service", "", "", "", "", "0.00"), tags=("total",))
 
-        bussboy_data = self._load_data_file(self.bussboy_file)
+        try:
+            bussboy_data = employees_repo.list_employees(role="busboy", active_only=True, order_by_points_desc=False)
+        except Exception as exc:
+            logger.exception("Erreur lors du chargement des bussboys")
+            bussboy_data = []
         if bussboy_data:
             self.tree.insert("", "end", values=("", "--- Bussboy ---", "", "", "", "", ""), tags=("section",))
-            for row in bussboy_data:
-                number = row[0] if len(row) > 0 else ""
-                name   = row[1] if len(row) > 1 else ""
-                points = row[2] if len(row) > 2 else 0
+            for emp in bussboy_data:
+                number = emp.get("employee_number") or ""
+                name = emp.get("name") or ""
+                try:
+                    points = int(float(emp.get("points", 0)))
+                except (TypeError, ValueError):
+                    points = 0
                 row_id = self.tree.insert("", "end", values=(number, name, points, "🕒", "", "", ""), tags=("editable",))
                 self.punch_data[row_id] = {"in": "", "out": "", "total": 0.0}
                 try:
@@ -300,6 +299,11 @@ class TimeSheet:
             self.shared_data.setdefault("transfer", {})
             self.shared_data["transfer"]["date"] = date_str
             self.shared_data["transfer"]["entries"] = export_data
+            period_info = self._resolve_pay_period(date_str)
+            if period_info:
+                self.shared_data["transfer"]["pay_period"] = period_info
+            else:
+                self.shared_data["transfer"].pop("pay_period", None)
 
             self.status_label.config(
                 text="✅ Les Heures ont été enregistrées et transférées à l'onglet Distribution",
@@ -325,6 +329,31 @@ class TimeSheet:
         except Exception:
             self.status_label.config(text="⛔ Erreur inattendue", foreground="#B22222")
             self.fade_out_status_label()
+
+    def _get_payroll_context(self):
+        try:
+            payroll = self.shared_data.get("payroll", {})
+            return payroll.get("context")
+        except Exception:
+            return None
+
+    def _resolve_pay_period(self, date_str: str):
+        context = self._get_payroll_context()
+        if not context:
+            return None
+        try:
+            target_date = datetime.strptime(date_str, self.date_format).date()
+        except ValueError:
+            return None
+        try:
+            return context.period_for_local_date(target_date)
+        except Exception as exc:
+            logger.warning("Impossible de déterminer la période de paye: %s", exc)
+            return None
+
+    def on_payroll_context_updated(self):
+        # Placeholder for future behaviour (ex: refresh badges)
+        pass
 
     def on_click(self, event):
         region = self.tree.identify("region", event.x, event.y)

@@ -5,7 +5,7 @@ from urllib.error import URLError, HTTPError
 from tkinter import messagebox
 from typing import Optional, Dict, Any, Tuple, List
 
-from version import APP_NAME, APP_VERSION
+from app_version import APP_NAME, APP_VERSION
 from AppConfig import get_auto_check_updates, load_config
 
 GITHUB_OWNER = "mattrap"

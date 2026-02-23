@@ -13,9 +13,10 @@ from AppConfig import (
 )
 
 from updater import check_for_update
-from version import APP_NAME, APP_VERSION
+from app_version import APP_NAME, APP_VERSION
 from datetime import datetime
 from distribution_settings import open_distribution_settings
+from payroll.ui import open_payroll_settings_dialog, open_pay_calendar_dialog
 
 
 class ManagerProgress:
@@ -236,6 +237,22 @@ def create_menu_bar(root, app):
             except Exception as e:
                 messagebox.showerror("Erreur", f"Impossible d’enregistrer:\n{e}")
 
+    settings_menu.add_separator()
+    settings_menu.add_command(
+        label="Paramètres de distribution",
+        command=lambda: open_distribution_settings(root, app)
+    )
+    settings_menu.add_separator()
+    settings_menu.add_command(
+        label="Paramètres de paie",
+        command=lambda: open_payroll_settings_dialog(root, app)
+    )
+    settings_menu.add_separator()
+    settings_menu.add_command(
+        label="Calendrier de paie",
+        command=lambda: open_pay_calendar_dialog(root, app)
+    )
+    settings_menu.add_separator()
     settings_menu.add_command(
         label="Ajuster l'échelle de l'interface…",
         command=lambda: _adjust_ui_scale(root),
@@ -265,14 +282,6 @@ def create_menu_bar(root, app):
 
     settings_button["menu"] = settings_menu
     settings_button.pack(side=LEFT, padx=5)
-
-    distribution_settings_button = ttk.Button(
-        menu_bar,
-        text="Distribution",
-        bootstyle=INFO,
-        command=lambda: open_distribution_settings(root, app)
-    )
-    distribution_settings_button.pack(side=LEFT, padx=5)
 
     # ----- Summary -----
     summary_button = ttk.Menubutton(menu_bar, text="Paye")

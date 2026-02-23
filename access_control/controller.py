@@ -9,7 +9,7 @@ from typing import Callable, Optional
 from dotenv import load_dotenv
 from supabase import Client, create_client
 
-from version import APP_VERSION
+from app_version import APP_VERSION
 
 # Load Supabase credentials from the bundled supabase.env first, then fall back to .env
 _SUPABASE_ENV_PATH = Path(

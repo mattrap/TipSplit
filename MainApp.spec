@@ -3,14 +3,13 @@
 block_cipher = None
 
 from PyInstaller.utils.hooks import collect_data_files
+from sys import platform
 
 a = Analysis(
     ['MainApp.py'],
     pathex=[],
     binaries=[],
     datas=[
-        # include employee defaults
-        ('defaults/*.json', 'defaults'),
         ('supabase.env', '.'),
         # include icons and splash images
         ('assets/icons/*', 'assets/icons'),
@@ -40,11 +39,28 @@ exe = EXE(
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=True,   # set False if you don’t want a console window
+    console=False,   # GUI app; no console window
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='assets/icons/app_icon.ico',
+    icon='assets/icons/app_icon.icns' if platform == 'darwin' else 'assets/icons/app_icon.ico',
 )
+
+if platform == 'darwin':
+    app = BUNDLE(
+        exe,
+        name='TipSplit.app',
+        icon='assets/icons/app_icon.icns',
+    )
+else:
+    coll = COLLECT(
+        exe,
+        a.binaries,
+        a.datas,
+        strip=False,
+        upx=True,
+        upx_exclude=[],
+        name='TipSplit',
+    )
