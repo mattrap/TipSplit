@@ -135,7 +135,22 @@ def apply_migrations(conn: sqlite3.Connection) -> None:
     current_version = int(row["value"]) if row else None
 
     if current_version is None:
-        logger.info("Initializing schema version %s", SCHEMA_VERSION)
+        if _is_fresh_database(conn):
+            logger.info("Initializing schema version %s", SCHEMA_VERSION)
+            _create_schema(conn)
+            conn.execute(
+                "INSERT OR REPLACE INTO schema_meta(key, value) VALUES ('schema_version', ?)",
+                (str(SCHEMA_VERSION),),
+            )
+            return
+
+        legacy_version = _detect_legacy_version(conn)
+        if legacy_version == 2 and SCHEMA_VERSION == 3:
+            logger.info("Detected legacy schema (no metadata). Migrating 2 -> 3")
+            _migrate_2_to_3(conn)
+        else:
+            logger.info("Detected existing schema without metadata; ensuring schema is complete.")
+
         _create_schema(conn)
         conn.execute(
             "INSERT OR REPLACE INTO schema_meta(key, value) VALUES ('schema_version', ?)",
@@ -166,20 +181,8 @@ def apply_migrations(conn: sqlite3.Connection) -> None:
 
 def _create_schema(conn: sqlite3.Connection) -> None:
     """
-    Create the full schema from scratch. Safe because no production data exists yet.
+    Create any missing schema objects (non-destructive).
     """
-    # Drop old development tables to avoid conflicts when iterating locally.
-    conn.execute("DROP TABLE IF EXISTS distribution_audit;")
-    conn.execute("DROP TABLE IF EXISTS distribution_employees;")
-    conn.execute("DROP TABLE IF EXISTS distribution_declaration_inputs;")
-    conn.execute("DROP TABLE IF EXISTS distribution_inputs;")
-    conn.execute("DROP TABLE IF EXISTS distributions;")
-    conn.execute("DROP TABLE IF EXISTS pay_period_overrides;")
-    conn.execute("DROP TABLE IF EXISTS pay_periods;")
-    conn.execute("DROP TABLE IF EXISTS pay_schedules;")
-    conn.execute("DROP TABLE IF EXISTS shifts;")
-    conn.execute("DROP TABLE IF EXISTS employees;")
-
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS employees (
@@ -405,6 +408,45 @@ def _create_schema(conn: sqlite3.Connection) -> None:
         );
         """
     )
+
+
+def _is_fresh_database(conn: sqlite3.Connection) -> bool:
+    """Return True if no application tables exist yet."""
+    row = conn.execute(
+        """
+        SELECT COUNT(*) AS c
+        FROM sqlite_master
+        WHERE type = 'table'
+          AND name NOT LIKE 'sqlite_%'
+          AND name != 'schema_meta';
+        """
+    ).fetchone()
+    return row["c"] == 0
+
+
+def _detect_legacy_version(conn: sqlite3.Connection) -> Optional[int]:
+    """
+    Best-effort detection of pre-metadata schemas.
+    Returns 2 if the legacy distributions table lacks shift_instance.
+    """
+    if not _table_exists(conn, "distributions"):
+        return None
+    if not _column_exists(conn, "distributions", "shift_instance"):
+        return 2
+    return None
+
+
+def _table_exists(conn: sqlite3.Connection, table_name: str) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+        (table_name,),
+    ).fetchone()
+    return row is not None
+
+
+def _column_exists(conn: sqlite3.Connection, table_name: str, column_name: str) -> bool:
+    rows = conn.execute(f"PRAGMA table_info({table_name});").fetchall()
+    return any(row["name"] == column_name for row in rows)
 
 
 def _migrate_2_to_3(conn: sqlite3.Connection) -> None:
