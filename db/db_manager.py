@@ -338,6 +338,74 @@ def _create_schema(conn: sqlite3.Connection) -> None:
         """
     )
 
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS distribution_inputs (
+            distribution_id INTEGER PRIMARY KEY,
+            ventes_nettes REAL,
+            depot_net REAL,
+            frais_admin REAL,
+            cash REAL,
+            FOREIGN KEY(distribution_id) REFERENCES distributions(id) ON DELETE CASCADE
+        );
+        """
+    )
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS distribution_declaration_inputs (
+            distribution_id INTEGER PRIMARY KEY,
+            ventes_totales REAL,
+            clients INTEGER,
+            tips_due REAL,
+            ventes_nourriture REAL,
+            FOREIGN KEY(distribution_id) REFERENCES distributions(id) ON DELETE CASCADE
+        );
+        """
+    )
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS distribution_employees (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            distribution_id INTEGER NOT NULL,
+            employee_number TEXT,
+            employee_name TEXT NOT NULL,
+            section TEXT,
+            hours REAL,
+            cash REAL,
+            sur_paye REAL,
+            frais_admin REAL,
+            A REAL,
+            B REAL,
+            D REAL,
+            E REAL,
+            F REAL,
+            FOREIGN KEY(distribution_id) REFERENCES distributions(id) ON DELETE CASCADE
+        );
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_distribution_employees_dist
+        ON distribution_employees(distribution_id);
+        """
+    )
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS distribution_audit (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            distribution_id INTEGER NOT NULL,
+            action TEXT NOT NULL,
+            actor TEXT,
+            created_at TEXT NOT NULL,
+            details_json TEXT,
+            FOREIGN KEY(distribution_id) REFERENCES distributions(id) ON DELETE CASCADE
+        );
+        """
+    )
+
 
 def _migrate_2_to_3(conn: sqlite3.Connection) -> None:
     """Add shift_instance to distributions and update uniqueness constraint."""
