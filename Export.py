@@ -852,6 +852,106 @@ def export_all_employee_pdfs(period_label: str, employees_index: Dict[str, dict]
         paths.append(out_path)
     return sorted(paths)
 
+def _fmt_hours_csv(value) -> str:
+    try:
+        val = float(value)
+        s = f"{val:.4f}".rstrip("0").rstrip(".")
+        return s if s else "0"
+    except Exception:
+        return ""
+
+def _fmt_money_csv(value) -> str:
+    try:
+        return f"{float(value):.2f}"
+    except Exception:
+        return ""
+
+def payroll_csv_default_dir(period_label: str) -> str:
+    period_folder = _period_folder_from_label(period_label)
+    target_dir = os.path.join(_pdf_root(), "Paye", period_folder)
+    _ensure_dir(target_dir)
+    return target_dir
+
+def export_payroll_summary_csv(
+    period_label: str,
+    period_info: dict,
+    employees_index: Dict[str, dict],
+    employee_keys_sorted: List[str],
+    out_path: str,
+) -> str:
+    """
+    Export a generic payroll summary CSV (one row per employee).
+    """
+    import csv
+
+    pay_period_id = (period_info or {}).get("id") or ""
+    period_start_iso = (period_info or {}).get("start_date_iso") or ""
+    period_end_iso = (period_info or {}).get("end_date_iso") or ""
+
+    headers = [
+        "pay_period_id",
+        "pay_period_label",
+        "period_start_iso",
+        "period_end_iso",
+        "employee_id",
+        "employee_name",
+        "role",
+        "shift_count",
+        "hours_total",
+        "cash_total",
+        "sur_paye_total",
+        "frais_admin_total",
+        "A_total",
+        "F_total",
+        "D_total",
+        "declared_amount",
+        "declared_source",
+    ]
+
+    def declared_amount_and_source(totals: dict, role: str):
+        role_lower = (role or "").lower()
+        if "service" in role_lower:
+            a_floor = 0.08 * float(totals.get("A_sum", 0.0) or 0.0)
+            f_total = float(totals.get("F_sum", 0.0) or 0.0)
+            if a_floor >= f_total:
+                return a_floor, "A_8pct"
+            return f_total, "F"
+        if "bussboy" in role_lower or "busboy" in role_lower:
+            return float(totals.get("D_sum", 0.0) or 0.0), "D"
+        return 0.0, "N/A"
+
+    with open(out_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f, delimiter=",", lineterminator="\n")
+        writer.writerow(headers)
+
+        for key in employee_keys_sorted:
+            info = employees_index.get(key, {})
+            totals = info.get("totals", {})
+            declared_val, declared_src = declared_amount_and_source(totals, info.get("role", ""))
+
+            row = [
+                pay_period_id,
+                period_label or "",
+                period_start_iso,
+                period_end_iso,
+                info.get("id", ""),
+                info.get("name", ""),
+                info.get("role", ""),
+                len(info.get("shifts", []) or []),
+                _fmt_hours_csv(totals.get("hours", 0.0)),
+                _fmt_money_csv(totals.get("cash", 0.0)),
+                _fmt_money_csv(totals.get("sur_paye", 0.0)),
+                _fmt_money_csv(totals.get("frais_admin", 0.0)),
+                _fmt_money_csv(totals.get("A_sum", 0.0)),
+                _fmt_money_csv(totals.get("F_sum", 0.0)),
+                _fmt_money_csv(totals.get("D_sum", 0.0)),
+                _fmt_money_csv(declared_val),
+                declared_src,
+            ]
+            writer.writerow(row)
+
+    return out_path
+
 def make_booklet(period_label: str, pdf_paths: List[str], out_file: str) -> str:
     """
     Merge per-employee PDFs into a single booklet PDF.

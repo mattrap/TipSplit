@@ -1,9 +1,11 @@
 # updater.py
-import os, sys, json, tempfile, hashlib, subprocess, time, webbrowser
+import os, sys, json, tempfile, hashlib, subprocess, time, webbrowser, ssl
 from urllib.request import urlopen, Request
 from urllib.error import URLError, HTTPError
 from tkinter import messagebox
 from typing import Optional, Dict, Any, Tuple, List
+
+import certifi
 
 from app_version import APP_NAME, APP_VERSION
 from AppConfig import get_auto_check_updates, load_config
@@ -32,19 +34,24 @@ def _norm_version(v: str) -> Tuple[int, ...]:
         parts.append(int(p2) if p2 else 0)
     return tuple(parts)
 
+def _ssl_context() -> ssl.SSLContext:
+    # Use certifi bundle to avoid missing system certs in packaged builds
+    return ssl.create_default_context(cafile=certifi.where())
+
+
 def _http_json(url: str) -> Any:
     req = Request(url, headers={"User-Agent": APP_NAME})
-    with urlopen(req, timeout=HTTP_TIMEOUT) as r:
+    with urlopen(req, timeout=HTTP_TIMEOUT, context=_ssl_context()) as r:
         return json.loads(r.read().decode("utf-8"))
 
 def _http_text(url: str) -> str:
     req = Request(url, headers={"User-Agent": APP_NAME})
-    with urlopen(req, timeout=HTTP_TIMEOUT) as r:
+    with urlopen(req, timeout=HTTP_TIMEOUT, context=_ssl_context()) as r:
         return r.read().decode("utf-8", errors="replace")
 
 def _http_download(url: str, out_path: str) -> None:
     req = Request(url, headers={"User-Agent": APP_NAME})
-    with urlopen(req, timeout=HTTP_TIMEOUT) as r, open(out_path, "wb") as f:
+    with urlopen(req, timeout=HTTP_TIMEOUT, context=_ssl_context()) as r, open(out_path, "wb") as f:
         while True:
             chunk = r.read(1024 * 64)
             if not chunk:
@@ -129,7 +136,11 @@ def check_for_update(parent=None, silent_if_current: bool = False):
 
         if _norm_version(tag_norm) <= _norm_version(APP_VERSION):
             if not silent_if_current:
-                messagebox.showinfo("Mise à jour", f"{APP_NAME} est à jour (v{APP_VERSION}).", parent=parent)
+                messagebox.showinfo(
+                    "Mise à jour",
+                    f"Vous avez déjà la dernière version de {APP_NAME} (v{APP_VERSION}).",
+                    parent=parent,
+                )
             return
 
         assets = rel.get("assets") or []
@@ -144,22 +155,19 @@ def check_for_update(parent=None, silent_if_current: bool = False):
         inst_url, inst_name, sha_url = _find_asset_urls(assets, target_asset)
 
         if not inst_url:
-            # Couldn’t auto-find the installer; open releases page
+            # Couldn’t auto-find the installer; inform the user and keep app running.
             messagebox.showwarning(
                 "Mise à jour",
-                "Une nouvelle version est disponible mais l’installateur n’a pas été trouvé automatiquement.",
+                "Une nouvelle version est disponible, mais l’installateur n’a pas été trouvé automatiquement.",
                 parent=parent,
             )
-            # Offer release page as a fallback.
-            if messagebox.askyesno("Mise à jour", "Ouvrir la page des versions ?", parent=parent):
-                webbrowser.open(RELEASES_URL)
             return
 
         # Confirm before installing
         proceed = messagebox.askyesno(
-            "Mise à jour disponible",
-            f"Nouvelle version: {tag}\nVersion actuelle: v{APP_VERSION}\n\n"
-            "Installer maintenant ?",
+            "Nouvelle version disponible",
+            f"Version actuelle: v{APP_VERSION}\nNouvelle version: {tag}\n\n"
+            "Cliquer sur Oui pour installer la nouvelle version.",
             parent=parent,
         )
         if not proceed:

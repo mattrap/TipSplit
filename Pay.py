@@ -15,7 +15,7 @@
 import os
 import re
 import ttkbootstrap as ttk
-from tkinter import StringVar, END, Listbox, Text, messagebox
+from tkinter import StringVar, END, Listbox, Text, messagebox, filedialog
 from ttkbootstrap.constants import *
 
 from db.distributions_repo import get_distributions_for_period, list_period_ids_with_distributions
@@ -91,6 +91,9 @@ class PayTab:
 
         ttk.Button(
             right_box, text="Exporter (PDF)", bootstyle="primary", command=self.on_export_pdf
+        ).pack(side=RIGHT, padx=6)
+        ttk.Button(
+            right_box, text="Exporter (CSV)", bootstyle="secondary", command=self.on_export_csv
         ).pack(side=RIGHT, padx=6)
 
         # Paned layout so the employee panel is wider and resizable
@@ -510,6 +513,41 @@ class PayTab:
             return
 
         messagebox.showinfo("Export PDF", f"Export créé:\n{booklet_path}")
+
+    def on_export_csv(self):
+        if not self.current_period_label:
+            messagebox.showwarning("Export CSV", "Aucune période sélectionnée.")
+            return
+        if not self.employees_index:
+            messagebox.showwarning("Export CSV", "Aucun employé à exporter.")
+            return
+
+        try:
+            from Export import export_payroll_summary_csv, payroll_csv_default_dir
+            safe_label = re.sub(r"[^A-Za-z0-9_-]+", "_", str(self.current_period_label or "periode"))
+            default_name = f"rapport_paye_{safe_label}.csv"
+            initialdir = payroll_csv_default_dir(self.current_period_label)
+            path = filedialog.asksaveasfilename(
+                defaultextension=".csv",
+                filetypes=[("Excel (CSV)", "*.csv")],
+                initialfile=default_name,
+                initialdir=initialdir,
+                title="Exporter le rapport de paye (CSV)",
+            )
+            if not path:
+                return
+            export_payroll_summary_csv(
+                self.current_period_label,
+                self.current_period_info or {},
+                self.employees_index,
+                self.employee_keys_sorted,
+                path,
+            )
+        except Exception as e:
+            messagebox.showerror("Export CSV", f"Erreur d'export:\n{e}")
+            return
+
+        messagebox.showinfo("Export CSV", f"Export créé:\n{path}")
 
     # -----------------------
     # Helpers
