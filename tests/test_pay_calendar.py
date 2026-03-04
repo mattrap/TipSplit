@@ -104,6 +104,24 @@ class PayCalendarServiceTests(unittest.TestCase):
             ).fetchone()["c"]
         self.assertEqual(audit, 1)
 
+    def test_distribution_tables_exist_after_init(self):
+        expected_tables = {
+            "distribution_inputs",
+            "distribution_declaration_inputs",
+            "distribution_employees",
+            "distribution_audit",
+        }
+        with db_session() as conn:
+            rows = conn.execute(
+                """
+                SELECT name
+                FROM sqlite_master
+                WHERE type = 'table'
+                  AND name IN ('distribution_inputs', 'distribution_declaration_inputs', 'distribution_employees', 'distribution_audit')
+                """
+            ).fetchall()
+        self.assertEqual({row["name"] for row in rows}, expected_tables)
+
 
 if __name__ == "__main__":
     unittest.main()

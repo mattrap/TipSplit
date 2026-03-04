@@ -1,9 +1,11 @@
 # updater.py
-import os, sys, json, tempfile, hashlib, subprocess, time, webbrowser
+import os, sys, json, tempfile, hashlib, subprocess, time, webbrowser, ssl
 from urllib.request import urlopen, Request
 from urllib.error import URLError, HTTPError
 from tkinter import messagebox
 from typing import Optional, Dict, Any, Tuple, List
+
+import certifi
 
 from app_version import APP_NAME, APP_VERSION
 from AppConfig import get_auto_check_updates, load_config
@@ -15,8 +17,9 @@ API_LATEST    = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/rele
 API_RELEASES  = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/releases"
 RELEASES_URL  = f"https://github.com/{GITHUB_OWNER}/{GITHUB_REPO}/releases"
 
-# Name of the Inno installer asset on GitHub Releases (no version in filename)
-INSTALLER_FILENAME = "TipSplit-Setup.exe"
+# Fixed asset names on GitHub Releases (no version in filename)
+WINDOWS_INSTALLER_FILENAME = "TipSplit-Setup.exe"
+MAC_DMG_FILENAME = "TipSplit-mac.dmg"
 
 HTTP_TIMEOUT = 30
 
@@ -31,41 +34,33 @@ def _norm_version(v: str) -> Tuple[int, ...]:
         parts.append(int(p2) if p2 else 0)
     return tuple(parts)
 
+def _ssl_context() -> ssl.SSLContext:
+    # Use certifi bundle to avoid missing system certs in packaged builds
+    return ssl.create_default_context(cafile=certifi.where())
+
+
 def _http_json(url: str) -> Any:
     req = Request(url, headers={"User-Agent": APP_NAME})
-    with urlopen(req, timeout=HTTP_TIMEOUT) as r:
+    with urlopen(req, timeout=HTTP_TIMEOUT, context=_ssl_context()) as r:
         return json.loads(r.read().decode("utf-8"))
 
 def _http_text(url: str) -> str:
     req = Request(url, headers={"User-Agent": APP_NAME})
-    with urlopen(req, timeout=HTTP_TIMEOUT) as r:
+    with urlopen(req, timeout=HTTP_TIMEOUT, context=_ssl_context()) as r:
         return r.read().decode("utf-8", errors="replace")
 
 def _http_download(url: str, out_path: str) -> None:
     req = Request(url, headers={"User-Agent": APP_NAME})
-    with urlopen(req, timeout=HTTP_TIMEOUT) as r, open(out_path, "wb") as f:
+    with urlopen(req, timeout=HTTP_TIMEOUT, context=_ssl_context()) as r, open(out_path, "wb") as f:
         while True:
             chunk = r.read(1024 * 64)
             if not chunk:
                 break
             f.write(chunk)
 
-def _pick_release(cfg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """
-    stable: use /releases/latest
-    beta:   use first non-draft from /releases (includes prereleases)
-    """
-    channel = (cfg.get("update_channel") or "stable").lower()
-    if channel == "beta":
-        rels = _http_json(API_RELEASES)
-        if not isinstance(rels, list):
-            return None
-        for rel in rels:
-            if not rel.get("draft"):
-                return rel
-        return None
-    else:
-        return _http_json(API_LATEST)
+def _pick_release(_cfg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Stable-only: use /releases/latest."""
+    return _http_json(API_LATEST)
 
 def _find_asset_urls(assets: list, target_name: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
     """
@@ -113,26 +108,19 @@ def _verify_sha256(file_path: str, sha256_text: str) -> bool:
     first = sha256_text.strip().split()[0].lower()
     return _sha256(file_path).lower() == first
 
-def _run_installer_silent(installer_path: str) -> None:
-    """
-    Inno Setup silent upgrade with app close/restart.
-    Requires [Setup] CloseApplications=yes, RestartApplications=yes in installer.iss
-    """
-    args = [
-        installer_path,
-        "/VERYSILENT",
-        "/SUPPRESSMSGBOXES",
-        "/CLOSEAPPLICATIONS",
-        "/RESTARTAPPLICATIONS",
-        "/NORESTART",
-    ]
-    # Launch detached; let installer close us and relaunch
-    subprocess.Popen(args, shell=False)
+def _run_installer_interactive(installer_path: str) -> None:
+    """Launch installer interactively so UAC and user consent are respected."""
+    subprocess.Popen([installer_path], shell=False)
+
+
+def _open_dmg(path: str) -> None:
+    """Open a DMG on macOS with the default handler."""
+    subprocess.Popen(["open", path], shell=False)
 
 # ---------- Public API ----------
-def check_for_update(parent=None, silent_if_current: bool = False, auto: bool = False):
+def check_for_update(parent=None, silent_if_current: bool = False):
     """
-    - If newer found, asks user unless auto=True (then proceeds without prompt).
+    - If newer found, asks user before installing.
     - If same/newer, shows 'up to date' unless silent_if_current=True.
     """
     try:
@@ -148,35 +136,40 @@ def check_for_update(parent=None, silent_if_current: bool = False, auto: bool = 
 
         if _norm_version(tag_norm) <= _norm_version(APP_VERSION):
             if not silent_if_current:
-                messagebox.showinfo("Mise à jour", f"{APP_NAME} est à jour (v{APP_VERSION}).", parent=parent)
+                messagebox.showinfo(
+                    "Mise à jour",
+                    f"Vous avez déjà la dernière version de {APP_NAME} (v{APP_VERSION}).",
+                    parent=parent,
+                )
             return
 
         assets = rel.get("assets") or []
-        inst_url, inst_name, sha_url = _find_asset_urls(assets, INSTALLER_FILENAME)
+        system = sys.platform.lower()
+        if system.startswith("win"):
+            target_asset = WINDOWS_INSTALLER_FILENAME
+        elif system == "darwin":
+            target_asset = MAC_DMG_FILENAME
+        else:
+            target_asset = WINDOWS_INSTALLER_FILENAME
+
+        inst_url, inst_name, sha_url = _find_asset_urls(assets, target_asset)
 
         if not inst_url:
-            # Couldn’t auto-find the installer; open releases page
-            if auto:
-                # In auto mode, avoid surprise browser pop; just inform.
-                messagebox.showwarning(
-                    "Mise à jour",
-                    "Une nouvelle version est disponible mais l’installateur n’a pas été trouvé automatiquement.",
-                    parent=parent
-                )
-                return
-            messagebox.showinfo("Téléchargement", "Ouverture de la page des versions.", parent=parent)
-            webbrowser.open(RELEASES_URL)
-            return
-
-        # Confirm unless auto
-        proceed = True
-        if not auto:
-            proceed = messagebox.askyesno(
-                "Mise à jour disponible",
-                f"Nouvelle version: {tag}\nVersion actuelle: v{APP_VERSION}\n\n"
-                "Installer maintenant ?",
+            # Couldn’t auto-find the installer; inform the user and keep app running.
+            messagebox.showwarning(
+                "Mise à jour",
+                "Une nouvelle version est disponible, mais l’installateur n’a pas été trouvé automatiquement.",
                 parent=parent,
             )
+            return
+
+        # Confirm before installing
+        proceed = messagebox.askyesno(
+            "Nouvelle version disponible",
+            f"Version actuelle: v{APP_VERSION}\nNouvelle version: {tag}\n\n"
+            "Cliquer sur Oui pour installer la nouvelle version.",
+            parent=parent,
+        )
         if not proceed:
             return
 
@@ -192,21 +185,32 @@ def check_for_update(parent=None, silent_if_current: bool = False, auto: bool = 
                     messagebox.showerror("Mise à jour", "Vérification SHA-256 échouée. Abandon.")
                     return
             except Exception:
-                # If checksum fetch fails, we can still proceed, or you can choose to abort.
+                # If checksum fetch fails, keep going (optional integrity)
                 pass
 
-        # Run silent upgrade and exit current app
-        _run_installer_silent(inst_path)
-        # Give Tk a moment to process UI, then quit hard to let installer replace files
         try:
-            time.sleep(0.5)
-            if parent is not None:
-                try:
-                    parent.quit()
-                except Exception:
-                    pass
-        finally:
-            os._exit(0)
+            if system.startswith("win"):
+                _run_installer_interactive(inst_path)
+            elif system == "darwin":
+                _open_dmg(inst_path)
+            else:
+                webbrowser.open(RELEASES_URL)
+                return
+        except Exception as exc:
+            messagebox.showerror("Mise à jour", f"Impossible de lancer l’installateur.\n{exc}", parent=parent)
+            return
+
+        # Give Tk a moment to process UI, then quit hard to let installer replace files
+        if system.startswith("win"):
+            try:
+                time.sleep(0.5)
+                if parent is not None:
+                    try:
+                        parent.quit()
+                    except Exception:
+                        pass
+            finally:
+                os._exit(0)
 
     except (HTTPError, URLError) as e:
         if not silent_if_current:
@@ -218,8 +222,8 @@ def check_for_update(parent=None, silent_if_current: bool = False, auto: bool = 
 def maybe_auto_check(parent=None):
     try:
         if get_auto_check_updates():
-            # Silent if already current; auto=True to skip prompt when newer exists
-            check_for_update(parent=parent, silent_if_current=True, auto=True)
+            # Silent if already current; still prompt when a newer version exists
+            check_for_update(parent=parent, silent_if_current=True)
     except Exception:
         # Never block startup on update errors
         pass
