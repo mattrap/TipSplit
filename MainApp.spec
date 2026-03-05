@@ -2,8 +2,50 @@
 
 block_cipher = None
 
-from PyInstaller.utils.hooks import collect_data_files
+import re
+import subprocess
+from pathlib import Path
 from sys import platform
+
+from PyInstaller.utils.hooks import collect_data_files
+
+
+def _git_tag_version() -> str:
+    try:
+        tag = subprocess.check_output(
+            ["git", "describe", "--tags", "--exact-match"],
+            text=True,
+            stderr=subprocess.STDOUT,
+        ).strip()
+    except Exception as exc:
+        raise RuntimeError(
+            "Release build requires an exact git tag like v1.2.3. "
+            "No exact tag was found for this commit."
+        ) from exc
+
+    if not re.fullmatch(r"v\\d+\\.\\d+\\.\\d+", tag):
+        raise RuntimeError(
+            f"Invalid tag format: {tag!r}. Expected vX.Y.Z (e.g., v1.2.3)."
+        )
+    return tag[1:]
+
+
+def _set_app_version(version: str) -> None:
+    version_path = Path(__file__).with_name("app_version.py")
+    text = version_path.read_text(encoding="utf-8")
+    updated = re.sub(
+        r'APP_VERSION\\s*=\\s*\"[^\"]*\"',
+        f'APP_VERSION = \"{version}\"',
+        text,
+        count=1,
+    )
+    if updated == text:
+        raise RuntimeError("APP_VERSION not found in app_version.py")
+    if updated != text:
+        version_path.write_text(updated, encoding="utf-8")
+
+
+_set_app_version(_git_tag_version())
 
 a = Analysis(
     ['MainApp.py'],
@@ -29,9 +71,8 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
     [],
+    exclude_binaries=True,
     name='TipSplit',
     debug=False,
     bootloader_ignore_signals=False,
