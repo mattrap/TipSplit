@@ -255,6 +255,46 @@ class PayrollSettingsDialog(Toplevel):
         if anchor_dt.weekday() != 6 or (anchor_dt.hour, anchor_dt.minute) != (6, 0):
             messagebox.showerror("Ancre", "L'ancre doit tomber un dimanche 06:00.")
             return
+        # Guard against changing settings that would affect periods with distributions
+        try:
+            context = self.app.get_payroll_context()
+            if context:
+                context.ensure_window()
+                anchor_period = context.period_for_local_date(anchor_dt.date())
+                rows = context.list_periods(limit=500)
+                sorted_rows = sorted(rows, key=lambda r: r.get("start_date_iso") or "")
+                row_by_id = {row.get("id"): row for row in sorted_rows}
+                current = row_by_id.get(anchor_period.get("id"))
+                if current:
+                    is_blocked = current.get("has_data") or current.get("status") in ("OPEN", "LOCKED")
+                else:
+                    is_blocked = False
+                if is_blocked:
+                    next_empty_start = None
+                    current_index = None
+                    for idx, row in enumerate(sorted_rows):
+                        if row.get("id") == anchor_period.get("id"):
+                            current_index = idx
+                            break
+                    start_idx = (current_index + 1) if current_index is not None else 0
+                    for row in sorted_rows[start_idx:]:
+                        if row.get("start_date_iso") and row.get("status_display") == "EMPTY":
+                            next_empty_start = row.get("start_date_iso")
+                            break
+                    if next_empty_start:
+                        messagebox.showerror(
+                            "Paramètres",
+                            f"La date d’effet doit être au plus tôt le {next_empty_start} (première période vide).",
+                        )
+                    else:
+                        messagebox.showerror(
+                            "Paramètres",
+                            "La date d’effet doit être après la prochaine période vide.",
+                        )
+                    return
+        except Exception:
+            messagebox.showerror("Paramètres", "Impossible de valider la date d’effet.")
+            return
         name = self.vars["name"].get().strip() or "Horaire"
         service = self.app.pay_calendar_service
         try:
@@ -324,7 +364,7 @@ class PayCalendarTab(ttk.Frame):
             self.tree.heading(col, text=headings[col])
             self.tree.column(col, anchor=W, width=160 if col == "range" else 120, stretch=True)
         self.tree.pack(fill=BOTH, expand=True, padx=10, pady=(0, 5))
-        self.tree.bind("<<TreeviewSelect>>", lambda *_: self._update_buttons())
+        self.tree.bind("<<TreeviewSelect>>", lambda *_: self._on_select())
         ttk.Label(self, textvariable=self.status_var, bootstyle="secondary", anchor=W).pack(fill=X, padx=10, pady=(0, 10))
         self._update_buttons()
 
@@ -341,18 +381,48 @@ class PayCalendarTab(ttk.Frame):
         self.periods = rows
         for item in self.tree.get_children():
             self.tree.delete(item)
+
+        past = []
+        open_rows = []
+        upcoming = []
         for row in rows:
+            status = row.get("status")
+            display = row.get("status_display") or status
+            if status == "PAYED":
+                past.append(row)
+            elif display == "EMPTY":
+                upcoming.append(row)
+            else:
+                open_rows.append(row)
+
+        def _insert_group(label, group_rows):
+            if not group_rows:
+                return
+            group_id = f"group:{label}"
             self.tree.insert(
                 "",
                 "end",
-                iid=row["id"],
-                values=(
-                    row["display_id"],
-                    row["range_label"],
-                    row["pay_date_local"],
-                    row.get("status_display") or row.get("status"),
-                ),
+                iid=group_id,
+                values=("", label, "", ""),
+                tags=("group",),
             )
+            self.tree.item(group_id, open=True)
+            for row in group_rows:
+                self.tree.insert(
+                    group_id,
+                    "end",
+                    iid=row["id"],
+                    values=(
+                        row["display_id"],
+                        row["range_label"],
+                        row["pay_date_local"],
+                        row.get("status_display") or row.get("status"),
+                    ),
+                )
+
+        _insert_group("Passées", past)
+        _insert_group("Ouvertes", open_rows)
+        _insert_group("À venir", upcoming)
         self.status_var.set(f"{len(rows)} périodes chargées")
         self._update_buttons()
 
@@ -369,22 +439,47 @@ class PayCalendarTab(ttk.Frame):
         if not selection:
             return None
         period_id = selection[0]
+        if str(period_id).startswith("group:"):
+            return None
         for row in self.periods:
             if row["id"] == period_id:
                 return row
         return None
 
+    def _on_select(self):
+        selection = self.tree.selection()
+        if selection and str(selection[0]).startswith("group:"):
+            self.tree.selection_remove(selection[0])
+        self._update_buttons()
+
     def _update_buttons(self):
         period = self._selected_period()
         has_period = period is not None
-        state = NORMAL if has_period else DISABLED
-        self.lock_btn.configure(state=state)
-        self.pay_btn.configure(state=state)
-        self.override_btn.configure(state=state)
+        if not has_period:
+            self.lock_btn.configure(state=DISABLED, text="Verrouiller")
+            self.pay_btn.configure(state=DISABLED)
+            self.override_btn.configure(state=DISABLED)
+            return
+        status = period.get("status")
+        if status == "LOCKED":
+            self.lock_btn.configure(text="Déverrouiller")
+        else:
+            self.lock_btn.configure(text="Verrouiller")
+        if status == "PAYED":
+            self.lock_btn.configure(state=DISABLED)
+            self.pay_btn.configure(state=DISABLED)
+        else:
+            self.lock_btn.configure(state=NORMAL)
+            self.pay_btn.configure(state=NORMAL)
+        self.override_btn.configure(state=NORMAL)
 
     def lock_selected(self):
         period = self._selected_period()
         if not period:
+            return
+        if period.get("status") == "LOCKED":
+            return self.unlock_selected()
+        if period.get("status") == "PAYED":
             return
         if hasattr(self.app, "require_manager_password"):
             if not self.app.require_manager_password("verrouiller une période de paie"):
@@ -401,11 +496,30 @@ class PayCalendarTab(ttk.Frame):
         period = self._selected_period()
         if not period:
             return
+        if period.get("status") == "PAYED":
+            return
         if hasattr(self.app, "require_manager_password"):
             if not self.app.require_manager_password("marquer une période comme payée"):
                 return
         try:
             self.app.pay_calendar_service.mark_payed(period["id"])
+        except PayCalendarError as exc:
+            messagebox.showerror("Période", str(exc), parent=self)
+            return
+        self.app.refresh_payroll_context()
+        self.refresh_periods()
+
+    def unlock_selected(self):
+        period = self._selected_period()
+        if not period:
+            return
+        if period.get("status") != "LOCKED":
+            return
+        if hasattr(self.app, "require_manager_password"):
+            if not self.app.require_manager_password("déverrouiller une période de paie"):
+                return
+        try:
+            self.app.pay_calendar_service.unlock_period(period["id"])
         except PayCalendarError as exc:
             messagebox.showerror("Période", str(exc), parent=self)
             return
