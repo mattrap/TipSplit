@@ -14,8 +14,8 @@ a = Analysis(
         # include icons and splash images
         ('assets/icons/*', 'assets/icons'),
         ('assets/images/*', 'assets/images'),
-    ] + collect_data_files('ttkbootstrap') + collect_data_files('certifi'),
-    hiddenimports=['PyPDF2'],
+    ] + collect_data_files('ttkbootstrap') + collect_data_files('certifi') + collect_data_files('tzdata'),
+    hiddenimports=['PyPDF2', 'tzdata'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

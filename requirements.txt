@@ -6,3 +6,4 @@ reportlab==4.4.2
 ttkbootstrap==1.13.11
 supabase>=2.6.0
 python-dotenv>=1.0.1
+tzdata>=2024.1
