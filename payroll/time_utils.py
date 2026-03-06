@@ -29,21 +29,32 @@ def _normalize_tz(tz: LocalTZ):
     return tz
 
 
+def _fallback_timezone():
+    # Use the system local timezone when possible; fall back to UTC if unavailable.
+    try:
+        local_tz = datetime.now().astimezone().tzinfo
+    except Exception:
+        local_tz = None
+    return local_tz or timezone.utc
+
+
 @lru_cache(maxsize=32)
 def get_timezone(name: str):
     """Return a tzinfo for the given name using zoneinfo or pytz."""
+    if not name:
+        return _fallback_timezone()
     if ZoneInfo is not None:
         try:
             return ZoneInfo(name)
         except Exception as exc:  # pragma: no cover - zoneinfo errors rare
             if pytz is None:
-                raise TimezoneError(f"Timezone '{name}' introuvable: {exc}") from exc
+                return _fallback_timezone()
     if pytz is not None:
         try:
             return pytz.timezone(name)
         except Exception as exc:  # pragma: no cover
-            raise TimezoneError(f"Timezone '{name}' introuvable: {exc}") from exc
-    raise TimezoneError("Aucune bibliothèque timezone disponible. Installez 'tzdata' ou 'pytz'.")
+            return _fallback_timezone()
+    return _fallback_timezone()
 
 
 def parse_local_iso(dt_str: str, tz: LocalTZ) -> datetime:

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, time, timedelta
-from typing import Optional
+from typing import Optional, Tuple
 
 from db.db_manager import db_session
 from payroll.pay_calendar import PayCalendarService
@@ -12,8 +12,8 @@ from payroll.time_utils import get_timezone
 DEFAULT_TZ = "America/Montreal"
 
 
-def ensure_default_schedule(group_key: str = "default") -> Optional[dict]:
-    """Ensure a schedule exists; return the active schedule."""
+def ensure_default_schedule(group_key: str = "default") -> Tuple[Optional[dict], bool]:
+    """Ensure a schedule exists; return (active_schedule, created)."""
     service = PayCalendarService(default_group=group_key)
     with db_session() as conn:
         row = conn.execute(
@@ -21,7 +21,7 @@ def ensure_default_schedule(group_key: str = "default") -> Optional[dict]:
             (group_key,),
         ).fetchone()
         if row and row["total"]:
-            return service.get_active_schedule(group_key=group_key)
+            return service.get_active_schedule(group_key=group_key), False
 
     tzinfo = get_timezone(DEFAULT_TZ)
     now_local = datetime.now(tzinfo)
@@ -46,4 +46,4 @@ def ensure_default_schedule(group_key: str = "default") -> Optional[dict]:
         today_local - timedelta(days=180),
         today_local + timedelta(days=365),
     )
-    return schedule
+    return schedule, True
