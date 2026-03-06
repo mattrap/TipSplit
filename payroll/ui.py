@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
+import logging
 from tkinter import Toplevel, messagebox, StringVar
 from tkinter.simpledialog import askstring
 
@@ -17,6 +18,7 @@ from payroll.time_utils import get_timezone, parse_local_iso
 _settings_dialog = None
 _calendar_dialog = None
 DEFAULT_TZ = "America/Montreal"
+logger = logging.getLogger("tipsplit.pay_calendar.ui")
 
 
 def _ensure_manager(app, purpose: str = "cette action") -> bool:
@@ -41,6 +43,7 @@ def open_payroll_settings_dialog(parent, app):
 def open_pay_calendar_dialog(parent, app):
     # Backward-compatible entry point: open the calendar as a tab.
     if hasattr(app, "show_pay_calendar_tab"):
+        logger.info("Open calendrier de paie (tab)")
         app.show_pay_calendar_tab()
         return
     global _calendar_dialog
@@ -342,7 +345,10 @@ class PayCalendarTab(ttk.Frame):
         self.setup_anchor_var = StringVar()
         self._in_select = False
         self._build_ui()
-        self.refresh_periods()
+        if get_payroll_setup_pending():
+            self.status_var.set("Configuration requise: choisissez l’ancre de paie.")
+        else:
+            self.refresh_periods()
 
     def _build_ui(self):
         if get_payroll_setup_pending():
@@ -396,6 +402,7 @@ class PayCalendarTab(ttk.Frame):
     def _build_setup_banner(self):
         if self.setup_frame and self.setup_frame.winfo_exists():
             return
+        logger.info("Affiche la bannière de configuration du calendrier de paie")
         frame = ttk.Frame(self, padding=10, bootstyle="info")
         frame.pack(fill=X, padx=10, pady=(10, 0))
         self.setup_frame = frame
@@ -433,6 +440,7 @@ class PayCalendarTab(ttk.Frame):
         self.setup_frame = None
 
     def _apply_setup_anchor(self):
+        logger.info("Tentative d'application de l'ancre de paie (setup)")
         if not get_payroll_setup_pending():
             self._hide_setup_banner()
             return
@@ -440,19 +448,23 @@ class PayCalendarTab(ttk.Frame):
         try:
             anchor_date = date.fromisoformat(anchor_text)
         except ValueError:
+            logger.warning("Ancre invalide (format): %s", anchor_text)
             messagebox.showerror("Ancre", "Format invalide (AAAA-MM-JJ)", parent=self)
             return
         if anchor_date.weekday() != 6:
+            logger.warning("Ancre invalide (pas dimanche): %s", anchor_text)
             messagebox.showerror("Ancre", "L’ancre doit être un dimanche.", parent=self)
             return
         context = self.app.get_payroll_context()
         if not context:
+            logger.error("Contexte de paie indisponible pendant le setup")
             messagebox.showerror("Ancre", "Contexte de paie indisponible.", parent=self)
             return
         try:
             schedule = context.get_schedule()
             anchor_dt = datetime.combine(anchor_date, time(hour=6, minute=0))
             anchor_str = anchor_dt.isoformat(timespec="seconds")
+            logger.info("Création d'un nouvel horaire via setup: anchor=%s", anchor_str)
             new_schedule = self.app.pay_calendar_service.create_schedule_version(
                 name=schedule.get("name") or "Horaire",
                 timezone_name=schedule["timezone"],
@@ -463,17 +475,21 @@ class PayCalendarTab(ttk.Frame):
                 group_key=getattr(self.app.payroll_context, "group_key", "default"),
             )
             today = date.today()
+            logger.info("Génération des périodes (setup) autour de %s", today.isoformat())
             self.app.pay_calendar_service.ensure_periods(
                 new_schedule["id"],
                 today - timedelta(days=180),
                 today + timedelta(days=365),
             )
         except PayCalendarError as exc:
+            logger.exception("Erreur PayCalendar lors de l'application de l'ancre: %s", exc)
             messagebox.showerror("Ancre", str(exc), parent=self)
             return
         except Exception as exc:
+            logger.exception("Erreur inattendue lors de l'application de l'ancre")
             messagebox.showerror("Ancre", f"Erreur inattendue: {exc}", parent=self)
             return
+        logger.info("Ancre appliquée avec succès")
         self.app.payroll_context.set_schedule(new_schedule)
         self.app.refresh_payroll_context()
         set_payroll_setup_pending(False)
@@ -483,13 +499,20 @@ class PayCalendarTab(ttk.Frame):
             self.app.on_payroll_setup_completed()
 
     def refresh_periods(self):
+        if get_payroll_setup_pending():
+            self.status_var.set("Configuration requise: choisissez l’ancre de paie.")
+            self._update_buttons()
+            return
         context = self.app.get_payroll_context()
         if not context:
+            logger.error("Contexte de paie indisponible lors du refresh")
             self.status_var.set("Contexte de paie indisponible")
             return
         try:
+            logger.info("Chargement des périodes de paie")
             rows = context.list_periods(limit=200)
         except PayCalendarError as exc:
+            logger.exception("Erreur PayCalendar lors du chargement des périodes: %s", exc)
             self.status_var.set(str(exc))
             return
         self.periods = rows
@@ -601,8 +624,10 @@ class PayCalendarTab(ttk.Frame):
             if not self.app.require_manager_password("verrouiller une période de paie"):
                 return
         try:
+            logger.info("Verrouiller période %s", period.get("id"))
             self.app.pay_calendar_service.lock_period(period["id"])
         except PayCalendarError as exc:
+            logger.exception("Erreur verrouillage période %s: %s", period.get("id"), exc)
             messagebox.showerror("Période", str(exc), parent=self)
             return
         self.app.refresh_payroll_context()
@@ -618,8 +643,10 @@ class PayCalendarTab(ttk.Frame):
             if not self.app.require_manager_password("marquer une période comme payée"):
                 return
         try:
+            logger.info("Marquer payé période %s", period.get("id"))
             self.app.pay_calendar_service.mark_payed(period["id"])
         except PayCalendarError as exc:
+            logger.exception("Erreur marquer payé période %s: %s", period.get("id"), exc)
             messagebox.showerror("Période", str(exc), parent=self)
             return
         self.app.refresh_payroll_context()
@@ -635,8 +662,10 @@ class PayCalendarTab(ttk.Frame):
             if not self.app.require_manager_password("rétablir une période à verrouillée"):
                 return
         try:
+            logger.info("Rétablir période %s à verrouillée", period.get("id"))
             self.app.pay_calendar_service.revert_payed(period["id"])
         except PayCalendarError as exc:
+            logger.exception("Erreur rétablir période %s: %s", period.get("id"), exc)
             messagebox.showerror("Période", str(exc), parent=self)
             return
         self.app.refresh_payroll_context()
@@ -652,8 +681,10 @@ class PayCalendarTab(ttk.Frame):
             if not self.app.require_manager_password("déverrouiller une période de paie"):
                 return
         try:
+            logger.info("Déverrouiller période %s", period.get("id"))
             self.app.pay_calendar_service.unlock_period(period["id"])
         except PayCalendarError as exc:
+            logger.exception("Erreur déverrouiller période %s: %s", period.get("id"), exc)
             messagebox.showerror("Période", str(exc), parent=self)
             return
         self.app.refresh_payroll_context()
@@ -681,6 +712,7 @@ class PayCalendarTab(ttk.Frame):
         if not reason:
             return
         try:
+            logger.info("Override date de paye période %s -> %s", period.get("id"), new_date)
             self.app.pay_calendar_service.admin_override_period(
                 period["id"],
                 {"pay_date_local": new_date.strip()},
@@ -688,6 +720,7 @@ class PayCalendarTab(ttk.Frame):
                 admin_actor=getattr(self.app, "user_email", None),
             )
         except PayCalendarError as exc:
+            logger.exception("Erreur override période %s: %s", period.get("id"), exc)
             messagebox.showerror("Override", str(exc), parent=self)
             return
         self.app.refresh_payroll_context()

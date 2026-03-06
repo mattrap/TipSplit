@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
+import logging
 from datetime import date, datetime, timedelta, timezone
 from typing import Dict, Iterable, List, Optional, Sequence
 from uuid import uuid4
@@ -22,6 +23,7 @@ from payroll.time_utils import (
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
+logger = logging.getLogger("tipsplit.pay_calendar")
 
 class PayCalendarError(RuntimeError):
     pass
@@ -159,6 +161,12 @@ class PayCalendarService:
         from_local_date: date,
         to_local_date: date,
     ) -> None:
+        logger.info(
+            "ensure_periods schedule=%s from=%s to=%s",
+            schedule_id,
+            from_local_date,
+            to_local_date,
+        )
         schedule = self.get_schedule(schedule_id)
         tzinfo = get_timezone(schedule["timezone"])
         anchor_local = parse_local_iso(schedule["anchor_start_local"], tzinfo)
@@ -205,6 +213,7 @@ class PayCalendarService:
             for year, rows in new_rows_by_year.items():
                 if not rows:
                     continue
+                logger.info("Insert periods schedule=%s year=%s count=%s", schedule_id, year, len(rows))
                 self._insert_and_resequence_year(conn, schedule, year, rows)
 
     def _find_start_before(self, anchor: datetime, target: datetime, period_length: timedelta) -> datetime:
