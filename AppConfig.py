@@ -41,6 +41,7 @@ DEFAULTS: Dict[str, Any] = {
     "update_channel": "stable",   # stable / beta (if you add channels later)
     "auto_check_updates": True,
     "ui_scale": 0.0,
+    "payroll_setup_pending": False,
 }
 
 
@@ -230,6 +231,18 @@ def load_config() -> Dict[str, Any]:
 def save_config(cfg: Dict[str, Any]):
     path = _config_path()
     _atomic_write_json(path, cfg)
+
+# ----------------------------
+# Payroll setup flag
+# ----------------------------
+def get_payroll_setup_pending() -> bool:
+    cfg = load_config()
+    return bool(cfg.get("payroll_setup_pending", False))
+
+def set_payroll_setup_pending(pending: bool) -> None:
+    cfg = load_config()
+    cfg["payroll_setup_pending"] = bool(pending)
+    save_config(cfg)
 
 # ----------------------------
 # Backend employee files (public API)

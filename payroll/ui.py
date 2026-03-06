@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
 from tkinter import Toplevel, messagebox, StringVar
 from tkinter.simpledialog import askstring
 
@@ -10,6 +10,7 @@ import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 from ttkbootstrap.widgets import DateEntry, Spinbox
 
+from AppConfig import get_payroll_setup_pending, set_payroll_setup_pending
 from payroll.pay_calendar import PayCalendarError
 from payroll.time_utils import get_timezone, parse_local_iso
 
@@ -337,10 +338,15 @@ class PayCalendarTab(ttk.Frame):
         self.periods = []
         self.tree = None
         self.status_var = StringVar(value="")
+        self.setup_frame = None
+        self.setup_anchor_var = StringVar()
+        self._in_select = False
         self._build_ui()
         self.refresh_periods()
 
     def _build_ui(self):
+        if get_payroll_setup_pending():
+            self._build_setup_banner()
         toolbar = ttk.Frame(self, padding=10)
         toolbar.pack(fill=X)
         ttk.Button(toolbar, text="Rafraîchir", command=self.refresh_periods).pack(side=LEFT, padx=4)
@@ -380,6 +386,101 @@ class PayCalendarTab(ttk.Frame):
 
         ttk.Label(self, textvariable=self.status_var, bootstyle="secondary", anchor=W).pack(fill=X, padx=10, pady=(0, 10))
         self._update_buttons()
+
+    def _default_anchor_date(self) -> str:
+        today = date.today()
+        days_since_sunday = (today.weekday() + 1) % 7
+        anchor_date = today - timedelta(days=days_since_sunday)
+        return anchor_date.isoformat()
+
+    def _build_setup_banner(self):
+        if self.setup_frame and self.setup_frame.winfo_exists():
+            return
+        frame = ttk.Frame(self, padding=10, bootstyle="info")
+        frame.pack(fill=X, padx=10, pady=(10, 0))
+        self.setup_frame = frame
+        ttk.Label(
+            frame,
+            text="Première configuration: choisissez l’ancre de la période de paie (dimanche).",
+            bootstyle="info",
+            wraplength=760,
+            anchor=W,
+        ).pack(fill=X)
+        row = ttk.Frame(frame)
+        row.pack(fill=X, pady=(6, 0))
+        ttk.Label(row, text="Ancre (dimanche):").pack(side=LEFT)
+        self.setup_anchor_var.set(self._default_anchor_date())
+        self.setup_anchor_picker = DateEntry(
+            row,
+            bootstyle="primary",
+            dateformat="%Y-%m-%d",
+            width=14,
+        )
+        self.setup_anchor_picker.entry.configure(textvariable=self.setup_anchor_var)
+        self.setup_anchor_picker.entry.bind("<Key>", lambda e: "break")
+        self.setup_anchor_picker.pack(side=LEFT, padx=(6, 6))
+        ttk.Label(row, text="à 06:00").pack(side=LEFT)
+        ttk.Button(
+            row,
+            text="Appliquer l’ancre",
+            bootstyle="success",
+            command=self._apply_setup_anchor,
+        ).pack(side=LEFT, padx=(12, 0))
+
+    def _hide_setup_banner(self):
+        if self.setup_frame and self.setup_frame.winfo_exists():
+            self.setup_frame.destroy()
+        self.setup_frame = None
+
+    def _apply_setup_anchor(self):
+        if not get_payroll_setup_pending():
+            self._hide_setup_banner()
+            return
+        anchor_text = (self.setup_anchor_var.get() or "").strip()
+        try:
+            anchor_date = date.fromisoformat(anchor_text)
+        except ValueError:
+            messagebox.showerror("Ancre", "Format invalide (AAAA-MM-JJ)", parent=self)
+            return
+        if anchor_date.weekday() != 6:
+            messagebox.showerror("Ancre", "L’ancre doit être un dimanche.", parent=self)
+            return
+        context = self.app.get_payroll_context()
+        if not context:
+            messagebox.showerror("Ancre", "Contexte de paie indisponible.", parent=self)
+            return
+        try:
+            schedule = context.get_schedule()
+            anchor_dt = datetime.combine(anchor_date, time(hour=6, minute=0))
+            anchor_str = anchor_dt.isoformat(timespec="seconds")
+            new_schedule = self.app.pay_calendar_service.create_schedule_version(
+                name=schedule.get("name") or "Horaire",
+                timezone_name=schedule["timezone"],
+                period_length_days=int(schedule["period_length_days"]),
+                pay_date_offset_days=int(schedule["pay_date_offset_days"]),
+                anchor_start_local=anchor_str,
+                effective_from=anchor_date,
+                group_key=getattr(self.app.payroll_context, "group_key", "default"),
+            )
+            today = date.today()
+            self.app.pay_calendar_service.ensure_periods(
+                new_schedule["id"],
+                today - timedelta(days=180),
+                today + timedelta(days=365),
+            )
+        except PayCalendarError as exc:
+            messagebox.showerror("Ancre", str(exc), parent=self)
+            return
+        except Exception as exc:
+            messagebox.showerror("Ancre", f"Erreur inattendue: {exc}", parent=self)
+            return
+        self.app.payroll_context.set_schedule(new_schedule)
+        self.app.refresh_payroll_context()
+        set_payroll_setup_pending(False)
+        self._hide_setup_banner()
+        self.refresh_periods()
+        if hasattr(self.app, "on_payroll_setup_completed"):
+            self.app.on_payroll_setup_completed()
 
     def refresh_periods(self):
         context = self.app.get_payroll_context()
@@ -453,10 +554,16 @@ class PayCalendarTab(ttk.Frame):
         return None
 
     def _on_select(self, active_tree):
-        for tree in (self.past_tree, self.open_tree, self.upcoming_tree):
-            if tree is not active_tree:
-                tree.selection_remove(tree.selection())
-        self._update_buttons()
+        if self._in_select:
+            return
+        self._in_select = True
+        try:
+            for tree in (self.past_tree, self.open_tree, self.upcoming_tree):
+                if tree is not active_tree:
+                    tree.selection_remove(tree.selection())
+            self._update_buttons()
+        finally:
+            self._in_select = False
 
     def _update_buttons(self):
         period = self._selected_period()

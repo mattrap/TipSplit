@@ -217,6 +217,8 @@ def create_menu_bar(root, app):
 
     # ----- UI scale override -----
     def _adjust_ui_scale(parent):
+        if hasattr(app, "ensure_payroll_setup_done") and not app.ensure_payroll_setup_done():
+            return
         current = get_ui_scale()
         initial = current if current > 0 else 1.0
         value = askfloat(
@@ -240,12 +242,12 @@ def create_menu_bar(root, app):
     settings_menu.add_separator()
     settings_menu.add_command(
         label="Paramètres de distribution",
-        command=lambda: open_distribution_settings(root, app)
+        command=lambda: (app.ensure_payroll_setup_done() and open_distribution_settings(root, app))
     )
     settings_menu.add_separator()
     settings_menu.add_command(
         label="Paramètres de paie",
-        command=lambda: open_payroll_settings_dialog(root, app)
+        command=lambda: (app.ensure_payroll_setup_done() and open_payroll_settings_dialog(root, app))
     )
     settings_menu.add_separator()
     settings_menu.add_command(
@@ -263,6 +265,8 @@ def create_menu_bar(root, app):
     _auto_updates_var = BooleanVar(value=get_auto_check_updates())
 
     def _toggle_auto_updates():
+        if hasattr(app, "ensure_payroll_setup_done") and not app.ensure_payroll_setup_done():
+            return
         try:
             set_auto_check_updates(_auto_updates_var.get())
         except Exception as e:
