@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
 import logging
+import traceback
 from tkinter import Toplevel, messagebox, StringVar
 from tkinter.simpledialog import askstring
 
@@ -344,6 +345,7 @@ class PayCalendarTab(ttk.Frame):
         self.setup_frame = None
         self.setup_anchor_var = StringVar()
         self._in_select = False
+        self._refreshing = False
         self._build_ui()
         if get_payroll_setup_pending():
             self.status_var.set("Configuration requise: choisissez l’ancre de paie.")
@@ -499,6 +501,12 @@ class PayCalendarTab(ttk.Frame):
             self.app.on_payroll_setup_completed()
 
     def refresh_periods(self):
+        if self._refreshing:
+            logger.warning(
+                "refresh_periods déjà en cours; appel ignoré.\n%s",
+                "".join(traceback.format_stack(limit=6)),
+            )
+            return
         if get_payroll_setup_pending():
             self.status_var.set("Configuration requise: choisissez l’ancre de paie.")
             self._update_buttons()
@@ -509,12 +517,15 @@ class PayCalendarTab(ttk.Frame):
             self.status_var.set("Contexte de paie indisponible")
             return
         try:
+            self._refreshing = True
             logger.info("Chargement des périodes de paie")
             rows = context.list_periods(limit=200)
         except PayCalendarError as exc:
             logger.exception("Erreur PayCalendar lors du chargement des périodes: %s", exc)
             self.status_var.set(str(exc))
             return
+        finally:
+            self._refreshing = False
         self.periods = rows
         for tree in (self.past_tree, self.open_tree, self.upcoming_tree):
             for item in tree.get_children():
