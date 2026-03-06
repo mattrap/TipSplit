@@ -363,8 +363,14 @@ class PayCalendarService:
     def lock_period(self, period_id: str) -> Dict:
         return self._transition_period(period_id, "OPEN", "LOCKED", set_locked=True)
 
+    def unlock_period(self, period_id: str) -> Dict:
+        return self._transition_period(period_id, "LOCKED", "OPEN", clear_locked=True)
+
     def mark_payed(self, period_id: str) -> Dict:
         return self._transition_period(period_id, "LOCKED", "PAYED", set_payed=True)
+
+    def revert_payed(self, period_id: str) -> Dict:
+        return self._transition_period(period_id, "PAYED", "LOCKED", clear_payed=True)
 
     def _transition_period(
         self,
@@ -374,6 +380,8 @@ class PayCalendarService:
         *,
         set_locked: bool = False,
         set_payed: bool = False,
+        clear_locked: bool = False,
+        clear_payed: bool = False,
     ) -> Dict:
         with db_session() as conn:
             row = conn.execute(
@@ -383,6 +391,8 @@ class PayCalendarService:
             if not row:
                 raise PayCalendarError("Période introuvable")
             if row["status"] != expected_status:
+                if expected_status == "LOCKED" and row["status"] == "OPEN":
+                    raise PayCalendarError("Vérouillez d'abord la période.")
                 raise PayCalendarError(
                     f"Transition invalide: {row['status']} -> {new_status}"
                 )
@@ -392,9 +402,13 @@ class PayCalendarService:
             if set_locked:
                 updates.append("locked_at_utc = ?")
                 params.append(now)
+            if clear_locked:
+                updates.append("locked_at_utc = NULL")
             if set_payed:
                 updates.append("payed_at_utc = ?")
                 params.append(now)
+            if clear_payed:
+                updates.append("payed_at_utc = NULL")
             params.append(period_id)
             conn.execute(
                 f"UPDATE pay_periods SET {', '.join(updates)} WHERE id = ?",

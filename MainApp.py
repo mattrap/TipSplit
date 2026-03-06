@@ -131,15 +131,16 @@ def _configure_logging():
     logging.info("Journalisation initialisée (%s)", log_path)
 
 
-def _bootstrap_database(root=None) -> bool:
+def _bootstrap_database(root=None):
     try:
         init_db()
         try:
-            ensure_default_schedule()
+            _, created = ensure_default_schedule()
         except Exception:
             logging.exception("Impossible de préparer l’horaire de paie par défaut")
+            created = False
         logging.info("Base de données prête (%s)", get_db_path())
-        return True
+        return True, created
     except Exception as exc:
         logging.exception("Échec de l’initialisation de la base de données")
         if root is None:
@@ -154,11 +155,11 @@ def _bootstrap_database(root=None) -> bool:
         )
         if root is None and tmp_root is not None:
             tmp_root.destroy()
-        return False
+        return False, False
 
 
 class TipSplitApp:
-    def __init__(self, root, controller: AccessController, user_role: str = "user"):
+    def __init__(self, root, controller: AccessController, user_role: str = "user", open_pay_settings: bool = False):
         self.root = root
         self.controller = controller
         self.user_role = user_role or "user"
@@ -186,6 +187,7 @@ class TipSplitApp:
         self.pay_calendar_service = PayCalendarService()
         self.payroll_context = PayrollContext(self.pay_calendar_service)
         self._initialize_payroll_context()
+        self._open_pay_settings_on_start = bool(open_pay_settings)
 
         self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(fill=BOTH, expand=True)
@@ -196,6 +198,9 @@ class TipSplitApp:
         
 
         create_menu_bar(self.root, self)
+        if self._open_pay_settings_on_start:
+            # Allow the main window to render first.
+            self.root.after(200, lambda: self._open_pay_settings_startup())
 
         self.role_var = tk.StringVar(value=f"Role: {self.user_role}")
         self.role_label = ttk.Label(
@@ -266,6 +271,16 @@ class TipSplitApp:
         except PayCalendarError as exc:
             logging.error("Impossible d'initialiser l'horaire de paie: %s", exc)
             payroll_bucket["error"] = str(exc)
+            # Attempt to create a default schedule if none exists.
+            try:
+                ensure_default_schedule()
+                schedule = self.payroll_context.refresh_schedule()
+                self.payroll_context.ensure_window()
+                payroll_bucket["context"] = self.payroll_context
+                payroll_bucket["schedule"] = schedule
+                payroll_bucket.pop("error", None)
+            except Exception:
+                logging.exception("Échec de la création automatique de l’horaire de paie")
 
     def refresh_payroll_context(self) -> bool:
         payroll_bucket = self.shared_data.setdefault("payroll", {})
@@ -494,6 +509,26 @@ class TipSplitApp:
             self.notebook.add(self.pay_frame, text="Pay")
         self.notebook.select(self.pay_frame)
 
+    def show_pay_calendar_tab(self):
+        from payroll.ui import PayCalendarTab
+        if not hasattr(self, "pay_calendar_tab"):
+            self.pay_calendar_frame = ttk.Frame(self.notebook)
+            self.pay_calendar_tab = PayCalendarTab(self.pay_calendar_frame, app=self)
+            self.pay_calendar_tab.pack(fill=BOTH, expand=True)
+            self.notebook.add(self.pay_calendar_frame, text="Calendrier de paie")
+        elif str(self.pay_calendar_frame) not in self.notebook.tabs():
+            self.notebook.add(self.pay_calendar_frame, text="Calendrier de paie")
+        if hasattr(self, "pay_calendar_tab"):
+            self.pay_calendar_tab.refresh_periods()
+        self.notebook.select(self.pay_calendar_frame)
+
+    def _open_pay_settings_startup(self):
+        try:
+            from payroll.ui import open_payroll_settings_dialog
+            open_payroll_settings_dialog(self.root, self)
+        except Exception:
+            logging.exception("Impossible d’ouvrir les paramètres de paie au démarrage")
+
     # ----- Cross-tab refresh hooks -----
     def reload_distribution_tab(self):
         if hasattr(self, "distribution_tab"):
@@ -508,7 +543,8 @@ class TipSplitApp:
 def main():
     _configure_logging()
     enable_high_dpi_awareness()
-    if not _bootstrap_database():
+    ok, created = _bootstrap_database()
+    if not ok:
         return
     try:
         controller = AccessController()
@@ -556,7 +592,8 @@ def main():
         app_root._tipsplit_app = TipSplitApp(
             app_root,
             controller,
-            user_role=controller.role or "user"
+            user_role=controller.role or "user",
+            open_pay_settings=created,
         )
         app_root.deiconify()
         if splash and splash.winfo_exists():

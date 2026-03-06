@@ -15,6 +15,7 @@ from payroll.time_utils import get_timezone, parse_local_iso
 
 _settings_dialog = None
 _calendar_dialog = None
+DEFAULT_TZ = "America/Montreal"
 
 
 def _ensure_manager(app, purpose: str = "cette action") -> bool:
@@ -37,9 +38,11 @@ def open_payroll_settings_dialog(parent, app):
 
 
 def open_pay_calendar_dialog(parent, app):
-    global _calendar_dialog
-    if not _ensure_manager(app, "consulter le calendrier de paie"):
+    # Backward-compatible entry point: open the calendar as a tab.
+    if hasattr(app, "show_pay_calendar_tab"):
+        app.show_pay_calendar_tab()
         return
+    global _calendar_dialog
     if _calendar_dialog and _calendar_dialog.winfo_exists():
         _calendar_dialog.focus_force()
         return
@@ -84,7 +87,7 @@ class PayrollSettingsDialog(Toplevel):
         days_since_sunday = (today.weekday() + 1) % 7
         anchor_date = (today - timedelta(days=days_since_sunday)).isoformat()
         self.vars["name"].set("Horaire")
-        self.vars["timezone"].set("America/Montreal")
+        self.vars["timezone"].set(DEFAULT_TZ)
         self.vars["period_length_days"].set("14")
         self.vars["pay_date_offset_days"].set("4")
         self.vars["anchor_date"].set(anchor_date)
@@ -93,20 +96,10 @@ class PayrollSettingsDialog(Toplevel):
     def _build_ui(self):
         frame = ttk.Frame(self, padding=15)
         frame.grid(row=0, column=0, sticky=NSEW)
-        ttk.Label(frame, text="Nom").grid(row=0, column=0, sticky=W, pady=4)
-        ttk.Entry(frame, textvariable=self.vars["name"], width=32).grid(row=0, column=1, sticky=W, pady=4)
+        ttk.Label(frame, text="Nom").grid(row=0, column=0, sticky=W, pady=(0, 4))
+        ttk.Entry(frame, textvariable=self.vars["name"], width=32).grid(row=0, column=1, sticky=W, pady=(0, 4))
 
-        ttk.Label(frame, text="Fuseau horaire").grid(row=1, column=0, sticky=W, pady=4)
-        self.tz_combo = ttk.Combobox(
-            frame,
-            textvariable=self.vars["timezone"],
-            values=self._common_timezones,
-            state="readonly",
-            width=29,
-        )
-        self.tz_combo.grid(row=1, column=1, sticky=W, pady=4)
-
-        ttk.Label(frame, text="Durée de période (jours)").grid(row=2, column=0, sticky=W, pady=4)
+        ttk.Label(frame, text="Durée de période (jours)").grid(row=1, column=0, sticky=W, pady=4)
         self.period_length_spin = Spinbox(
             frame,
             from_=7,
@@ -116,9 +109,9 @@ class PayrollSettingsDialog(Toplevel):
             justify="center",
             textvariable=self.vars["period_length_days"],
         )
-        self.period_length_spin.grid(row=2, column=1, sticky=W, pady=4)
+        self.period_length_spin.grid(row=1, column=1, sticky=W, pady=4)
 
-        ttk.Label(frame, text="Décalage Paye (jours)").grid(row=3, column=0, sticky=W, pady=4)
+        ttk.Label(frame, text="Décalage de paie (jours)").grid(row=2, column=0, sticky=W, pady=4)
         self.pay_offset_spin = Spinbox(
             frame,
             from_=0,
@@ -128,11 +121,11 @@ class PayrollSettingsDialog(Toplevel):
             justify="center",
             textvariable=self.vars["pay_date_offset_days"],
         )
-        self.pay_offset_spin.grid(row=3, column=1, sticky=W, pady=4)
+        self.pay_offset_spin.grid(row=2, column=1, sticky=W, pady=4)
 
-        ttk.Label(frame, text="Ancre (dimanche)").grid(row=4, column=0, sticky=W, pady=4)
+        ttk.Label(frame, text="Ancre (dimanche)").grid(row=3, column=0, sticky=W, pady=4)
         anchor_row = ttk.Frame(frame)
-        anchor_row.grid(row=4, column=1, sticky=W, pady=4)
+        anchor_row.grid(row=3, column=1, sticky=W, pady=4)
         self.anchor_date_picker = DateEntry(
             anchor_row,
             bootstyle="primary",
@@ -144,7 +137,7 @@ class PayrollSettingsDialog(Toplevel):
         self.anchor_date_picker.pack(side=LEFT)
         ttk.Label(anchor_row, text="à 06:00").pack(side=LEFT, padx=(6, 0))
 
-        ttk.Label(frame, text="Entrée en vigueur").grid(row=5, column=0, sticky=W, pady=4)
+        ttk.Label(frame, text="Entrée en vigueur").grid(row=4, column=0, sticky=W, pady=4)
         self.effective_date_picker = DateEntry(
             frame,
             bootstyle="primary",
@@ -153,16 +146,33 @@ class PayrollSettingsDialog(Toplevel):
         )
         self.effective_date_picker.entry.configure(textvariable=self.vars["effective_from"])
         self.effective_date_picker.entry.bind("<Key>", lambda e: "break")
-        self.effective_date_picker.grid(row=5, column=1, sticky=W, pady=4)
+        self.effective_date_picker.grid(row=4, column=1, sticky=W, pady=4)
+
+        ttk.Label(frame, text="Fuseau horaire").grid(row=5, column=0, sticky=W, pady=4)
+        self.tz_combo = ttk.Combobox(
+            frame,
+            textvariable=self.vars["timezone"],
+            values=self._common_timezones,
+            state="disabled",
+            width=29,
+        )
+        self.tz_combo.grid(row=5, column=1, sticky=W, pady=4)
+
+        ttk.Label(
+            frame,
+            text="Le fuseau horaire est fixé à America/Montreal pour stabiliser les périodes.",
+            wraplength=360,
+            bootstyle="secondary",
+        ).grid(row=6, column=0, columnspan=2, pady=(2, 8), sticky=W)
 
         ttk.Label(
             frame,
             text="L'ancre est fixe à 06:00 le dimanche. Le nouvel horaire ne modifie pas les périodes passées.",
             wraplength=360,
             bootstyle="secondary",
-        ).grid(row=6, column=0, columnspan=2, pady=(6, 12), sticky=W)
+        ).grid(row=7, column=0, columnspan=2, pady=(0, 12), sticky=W)
         btns = ttk.Frame(frame)
-        btns.grid(row=7, column=0, columnspan=2, sticky=E)
+        btns.grid(row=8, column=0, columnspan=2, sticky=E)
         ttk.Button(btns, text="Annuler", command=self._close, bootstyle="secondary").pack(side=RIGHT, padx=4)
         self.save_btn = ttk.Button(btns, text="Enregistrer", command=self._save, bootstyle="success")
         self.save_btn.pack(side=RIGHT, padx=4)
@@ -181,11 +191,7 @@ class PayrollSettingsDialog(Toplevel):
             self._set_dirty(False)
             return
         self.vars["name"].set(schedule.get("name", "Horaire"))
-        tz_value = schedule.get("timezone", "America/Montreal")
-        if tz_value not in self._common_timezones:
-            self._common_timezones.insert(0, tz_value)
-            self.tz_combo.configure(values=self._common_timezones)
-        self.vars["timezone"].set(tz_value)
+        self.vars["timezone"].set(DEFAULT_TZ)
         self.vars["period_length_days"].set(str(schedule.get("period_length_days", 14)))
         self.vars["pay_date_offset_days"].set(str(schedule.get("pay_date_offset_days", 4)))
         anchor_raw = schedule.get("anchor_start_local", "")
@@ -221,12 +227,7 @@ class PayrollSettingsDialog(Toplevel):
         if not schedule:
             messagebox.showerror("Paie", "Horaire impossible à récupérer.")
             return
-        tz_name = self.vars["timezone"].get().strip() or "America/Montreal"
-        try:
-            get_timezone(tz_name)
-        except Exception as exc:
-            messagebox.showerror("Fuseau horaire", f"Timezone invalide: {exc}")
-            return
+        tz_name = DEFAULT_TZ
         try:
             period_length = int(self.vars["period_length_days"].get())
         except ValueError:
@@ -253,6 +254,46 @@ class PayrollSettingsDialog(Toplevel):
             return
         if anchor_dt.weekday() != 6 or (anchor_dt.hour, anchor_dt.minute) != (6, 0):
             messagebox.showerror("Ancre", "L'ancre doit tomber un dimanche 06:00.")
+            return
+        # Guard against changing settings that would affect periods with distributions
+        try:
+            context = self.app.get_payroll_context()
+            if context:
+                context.ensure_window()
+                anchor_period = context.period_for_local_date(anchor_dt.date())
+                rows = context.list_periods(limit=500)
+                sorted_rows = sorted(rows, key=lambda r: r.get("start_date_iso") or "")
+                row_by_id = {row.get("id"): row for row in sorted_rows}
+                current = row_by_id.get(anchor_period.get("id"))
+                if current:
+                    is_blocked = current.get("has_data") or current.get("status") in ("OPEN", "LOCKED")
+                else:
+                    is_blocked = False
+                if is_blocked:
+                    next_empty_start = None
+                    current_index = None
+                    for idx, row in enumerate(sorted_rows):
+                        if row.get("id") == anchor_period.get("id"):
+                            current_index = idx
+                            break
+                    start_idx = (current_index + 1) if current_index is not None else 0
+                    for row in sorted_rows[start_idx:]:
+                        if row.get("start_date_iso") and row.get("status_display") == "EMPTY":
+                            next_empty_start = row.get("start_date_iso")
+                            break
+                    if next_empty_start:
+                        messagebox.showerror(
+                            "Paramètres",
+                            f"La date d’effet doit être au plus tôt le {next_empty_start} (première période vide).",
+                        )
+                    else:
+                        messagebox.showerror(
+                            "Paramètres",
+                            "La date d’effet doit être après la prochaine période vide.",
+                        )
+                    return
+        except Exception:
+            messagebox.showerror("Paramètres", "Impossible de valider la date d’effet.")
             return
         name = self.vars["name"].get().strip() or "Horaire"
         service = self.app.pay_calendar_service
@@ -289,18 +330,15 @@ class PayrollSettingsDialog(Toplevel):
         self.destroy()
 
 
-class PayCalendarDialog(Toplevel):
+class PayCalendarTab(ttk.Frame):
     def __init__(self, parent, app):
         super().__init__(parent)
         self.app = app
-        self.title("Calendrier de paie")
-        self.geometry("720x420")
         self.periods = []
         self.tree = None
         self.status_var = StringVar(value="")
         self._build_ui()
         self.refresh_periods()
-        self.protocol("WM_DELETE_WINDOW", self._close)
 
     def _build_ui(self):
         toolbar = ttk.Frame(self, padding=10)
@@ -313,20 +351,33 @@ class PayCalendarDialog(Toplevel):
         self.pay_btn.pack(side=LEFT, padx=4)
         self.override_btn = ttk.Button(toolbar, text="Modifier date de paie", command=self.override_pay_date)
         self.override_btn.pack(side=LEFT, padx=4)
+        self.revert_btn = ttk.Button(toolbar, text="Rétablir à verrouillé", command=self.revert_payed_selected)
+        self.revert_btn.pack(side=LEFT, padx=4)
 
         columns = ("display_id", "range", "pay_date", "status")
-        self.tree = ttk.Treeview(self, columns=columns, show="headings", height=12)
         headings = {
             "display_id": "ID",
             "range": "Période",
             "pay_date": "Date de paye",
             "status": "Statut",
         }
-        for col in columns:
-            self.tree.heading(col, text=headings[col])
-            self.tree.column(col, anchor=W, width=160 if col == "range" else 120, stretch=True)
-        self.tree.pack(fill=BOTH, expand=True, padx=10, pady=(0, 5))
-        self.tree.bind("<<TreeviewSelect>>", lambda *_: self._update_buttons())
+
+        def _build_section(parent, label, height):
+            section = ttk.Frame(parent)
+            section.pack(fill=BOTH, expand=True, padx=10, pady=(0, 6))
+            ttk.Label(section, text=label, bootstyle="secondary").pack(anchor=W, pady=(0, 2))
+            tree = ttk.Treeview(section, columns=columns, show="headings", height=height)
+            for col in columns:
+                tree.heading(col, text=headings[col])
+                tree.column(col, anchor=W, width=160 if col == "range" else 120, stretch=True)
+            tree.pack(fill=BOTH, expand=True)
+            tree.bind("<<TreeviewSelect>>", lambda _evt, t=tree: self._on_select(t))
+            return tree
+
+        self.past_tree = _build_section(self, "Passées", 6)
+        self.open_tree = _build_section(self, "Ouvertes", 6)
+        self.upcoming_tree = _build_section(self, "À venir", 6)
+
         ttk.Label(self, textvariable=self.status_var, bootstyle="secondary", anchor=W).pack(fill=X, padx=10, pady=(0, 10))
         self._update_buttons()
 
@@ -341,20 +392,40 @@ class PayCalendarDialog(Toplevel):
             self.status_var.set(str(exc))
             return
         self.periods = rows
-        for item in self.tree.get_children():
-            self.tree.delete(item)
+        for tree in (self.past_tree, self.open_tree, self.upcoming_tree):
+            for item in tree.get_children():
+                tree.delete(item)
+
+        past = []
+        open_rows = []
+        upcoming = []
         for row in rows:
-            self.tree.insert(
-                "",
-                "end",
-                iid=row["id"],
-                values=(
-                    row["display_id"],
-                    row["range_label"],
-                    row["pay_date_local"],
-                    row.get("status_display") or row.get("status"),
-                ),
-            )
+            status = row.get("status")
+            display = row.get("status_display") or status
+            if status == "PAYED":
+                past.append(row)
+            elif display == "EMPTY":
+                upcoming.append(row)
+            else:
+                open_rows.append(row)
+
+        def _insert_rows(tree, group_rows):
+            for row in group_rows:
+                tree.insert(
+                    "",
+                    "end",
+                    iid=row["id"],
+                    values=(
+                        row["display_id"],
+                        row["range_label"],
+                        row["pay_date_local"],
+                        row.get("status_display") or row.get("status"),
+                    ),
+                )
+
+        _insert_rows(self.past_tree, past)
+        _insert_rows(self.open_tree, open_rows)
+        _insert_rows(self.upcoming_tree, upcoming)
         self.status_var.set(f"{len(rows)} périodes chargées")
         self._update_buttons()
 
@@ -367,7 +438,12 @@ class PayCalendarDialog(Toplevel):
         self.refresh_periods()
 
     def _selected_period(self):
-        selection = self.tree.selection()
+        selection = None
+        for tree in (self.past_tree, self.open_tree, self.upcoming_tree):
+            sel = tree.selection()
+            if sel:
+                selection = sel
+                break
         if not selection:
             return None
         period_id = selection[0]
@@ -376,20 +452,47 @@ class PayCalendarDialog(Toplevel):
                 return row
         return None
 
+    def _on_select(self, active_tree):
+        for tree in (self.past_tree, self.open_tree, self.upcoming_tree):
+            if tree is not active_tree:
+                tree.selection_remove(tree.selection())
+        self._update_buttons()
+
     def _update_buttons(self):
         period = self._selected_period()
         has_period = period is not None
-        manager = self.app.is_manager()
-        admin = self.app.is_admin()
-        state = NORMAL if (has_period and manager) else DISABLED
-        self.lock_btn.configure(state=state)
-        self.pay_btn.configure(state=state)
-        self.override_btn.configure(state=NORMAL if (has_period and admin) else DISABLED)
+        if not has_period:
+            self.lock_btn.configure(state=DISABLED, text="Verrouiller")
+            self.pay_btn.configure(state=DISABLED)
+            self.override_btn.configure(state=DISABLED)
+            self.revert_btn.configure(state=DISABLED)
+            return
+        status = period.get("status")
+        if status == "LOCKED":
+            self.lock_btn.configure(text="Déverrouiller")
+        else:
+            self.lock_btn.configure(text="Verrouiller")
+        if status == "PAYED":
+            self.lock_btn.configure(state=DISABLED)
+            self.pay_btn.configure(state=DISABLED)
+            self.revert_btn.configure(state=NORMAL)
+        else:
+            self.lock_btn.configure(state=NORMAL)
+            self.pay_btn.configure(state=NORMAL)
+            self.revert_btn.configure(state=DISABLED)
+        self.override_btn.configure(state=NORMAL)
 
     def lock_selected(self):
         period = self._selected_period()
         if not period:
             return
+        if period.get("status") == "LOCKED":
+            return self.unlock_selected()
+        if period.get("status") == "PAYED":
+            return
+        if hasattr(self.app, "require_manager_password"):
+            if not self.app.require_manager_password("verrouiller une période de paie"):
+                return
         try:
             self.app.pay_calendar_service.lock_period(period["id"])
         except PayCalendarError as exc:
@@ -402,8 +505,47 @@ class PayCalendarDialog(Toplevel):
         period = self._selected_period()
         if not period:
             return
+        if period.get("status") == "PAYED":
+            return
+        if hasattr(self.app, "require_manager_password"):
+            if not self.app.require_manager_password("marquer une période comme payée"):
+                return
         try:
             self.app.pay_calendar_service.mark_payed(period["id"])
+        except PayCalendarError as exc:
+            messagebox.showerror("Période", str(exc), parent=self)
+            return
+        self.app.refresh_payroll_context()
+        self.refresh_periods()
+
+    def revert_payed_selected(self):
+        period = self._selected_period()
+        if not period:
+            return
+        if period.get("status") != "PAYED":
+            return
+        if hasattr(self.app, "require_manager_password"):
+            if not self.app.require_manager_password("rétablir une période à verrouillée"):
+                return
+        try:
+            self.app.pay_calendar_service.revert_payed(period["id"])
+        except PayCalendarError as exc:
+            messagebox.showerror("Période", str(exc), parent=self)
+            return
+        self.app.refresh_payroll_context()
+        self.refresh_periods()
+
+    def unlock_selected(self):
+        period = self._selected_period()
+        if not period:
+            return
+        if period.get("status") != "LOCKED":
+            return
+        if hasattr(self.app, "require_manager_password"):
+            if not self.app.require_manager_password("déverrouiller une période de paie"):
+                return
+        try:
+            self.app.pay_calendar_service.unlock_period(period["id"])
         except PayCalendarError as exc:
             messagebox.showerror("Période", str(exc), parent=self)
             return
@@ -414,6 +556,9 @@ class PayCalendarDialog(Toplevel):
         if not self.app.is_admin():
             messagebox.showerror("Accès", "Seuls les administrateurs peuvent modifier la date de paye.")
             return
+        if hasattr(self.app, "require_manager_password"):
+            if not self.app.require_manager_password("modifier la date de paie"):
+                return
         period = self._selected_period()
         if not period:
             return
@@ -440,6 +585,16 @@ class PayCalendarDialog(Toplevel):
             return
         self.app.refresh_payroll_context()
         self.refresh_periods()
+
+class PayCalendarDialog(Toplevel):
+    def __init__(self, parent, app):
+        super().__init__(parent)
+        self.app = app
+        self.title("Calendrier de paie")
+        self.geometry("720x420")
+        self.tab = PayCalendarTab(self, app)
+        self.tab.pack(fill=BOTH, expand=True)
+        self.protocol("WM_DELETE_WINDOW", self._close)
 
     def _close(self):
         global _calendar_dialog

@@ -16,7 +16,7 @@ from updater import check_for_update
 from app_version import APP_NAME, APP_VERSION
 from datetime import datetime
 from distribution_settings import open_distribution_settings
-from payroll.ui import open_payroll_settings_dialog, open_pay_calendar_dialog
+from payroll.ui import open_payroll_settings_dialog
 
 
 class ManagerProgress:
@@ -249,11 +249,6 @@ def create_menu_bar(root, app):
     )
     settings_menu.add_separator()
     settings_menu.add_command(
-        label="Calendrier de paie",
-        command=lambda: open_pay_calendar_dialog(root, app)
-    )
-    settings_menu.add_separator()
-    settings_menu.add_command(
         label="Ajuster l'échelle de l'interface…",
         command=lambda: _adjust_ui_scale(root),
     )
@@ -297,6 +292,12 @@ def create_menu_bar(root, app):
     summary_menu.add_command(
         label="Rapport de paye",
         command=app.show_pay_tab
+    )
+    summary_menu.add_separator()
+
+    summary_menu.add_command(
+        label="Calendrier de paie",
+        command=app.show_pay_calendar_tab
     )
     summary_menu.add_separator()
     

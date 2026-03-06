@@ -1068,10 +1068,17 @@ def export_distribution_from_tab(distribution_tab):
             messagebox.showerror("Période introuvable", "Impossible de déterminer la période de paye pour cette date.")
             return
 
-        dist_id, dist_ref, created_at, shift_instance = db_export(
-            date, shift, period_info, sanitized_inputs, raw_decl_inputs, entries_dist, entries_decl,
-            created_by=getattr(distribution_tab, "current_user", "")
-        )
+        try:
+            dist_id, dist_ref, created_at, shift_instance = db_export(
+                date, shift, period_info, sanitized_inputs, raw_decl_inputs, entries_dist, entries_decl,
+                created_by=getattr(distribution_tab, "current_user", "")
+            )
+        except ValueError as exc:
+            messagebox.showerror(
+                "Période de paie",
+                f"{exc}\n\nÉtapes: Paye -> Calendrier de paye -> Déverrouiller",
+            )
+            return
         if not dist_id:
             # User chose to cancel the replacement
             return
