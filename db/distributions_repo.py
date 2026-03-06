@@ -81,8 +81,19 @@ def create_distribution(
     if not isinstance(shift_instance, int) or shift_instance < 1:
         raise ValueError("shift_instance invalide.")
 
-    now = _utc_now()
     with db_session() as conn:
+        period = conn.execute(
+            "SELECT status FROM pay_periods WHERE id = ?",
+            (pay_period_id,),
+        ).fetchone()
+        if not period:
+            raise ValueError("Période de paie introuvable.")
+        status = period["status"]
+        if status == "LOCKED":
+            raise ValueError("La période est verrouillée. Déverrouillez-la avant d’ajouter une distribution.")
+        if status == "PAYED":
+            raise ValueError("La période est payée. Vous devez la rétablir à verrouillée pour ajouter une distribution.")
+        now = _utc_now()
         cur = conn.execute(
             """
             INSERT INTO distributions(

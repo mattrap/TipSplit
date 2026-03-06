@@ -351,20 +351,33 @@ class PayCalendarTab(ttk.Frame):
         self.pay_btn.pack(side=LEFT, padx=4)
         self.override_btn = ttk.Button(toolbar, text="Modifier date de paie", command=self.override_pay_date)
         self.override_btn.pack(side=LEFT, padx=4)
+        self.revert_btn = ttk.Button(toolbar, text="Rétablir à verrouillé", command=self.revert_payed_selected)
+        self.revert_btn.pack(side=LEFT, padx=4)
 
         columns = ("display_id", "range", "pay_date", "status")
-        self.tree = ttk.Treeview(self, columns=columns, show="headings", height=12)
         headings = {
             "display_id": "ID",
             "range": "Période",
             "pay_date": "Date de paye",
             "status": "Statut",
         }
-        for col in columns:
-            self.tree.heading(col, text=headings[col])
-            self.tree.column(col, anchor=W, width=160 if col == "range" else 120, stretch=True)
-        self.tree.pack(fill=BOTH, expand=True, padx=10, pady=(0, 5))
-        self.tree.bind("<<TreeviewSelect>>", lambda *_: self._on_select())
+
+        def _build_section(parent, label, height):
+            section = ttk.Frame(parent)
+            section.pack(fill=BOTH, expand=True, padx=10, pady=(0, 6))
+            ttk.Label(section, text=label, bootstyle="secondary").pack(anchor=W, pady=(0, 2))
+            tree = ttk.Treeview(section, columns=columns, show="headings", height=height)
+            for col in columns:
+                tree.heading(col, text=headings[col])
+                tree.column(col, anchor=W, width=160 if col == "range" else 120, stretch=True)
+            tree.pack(fill=BOTH, expand=True)
+            tree.bind("<<TreeviewSelect>>", lambda _evt, t=tree: self._on_select(t))
+            return tree
+
+        self.past_tree = _build_section(self, "Passées", 6)
+        self.open_tree = _build_section(self, "Ouvertes", 6)
+        self.upcoming_tree = _build_section(self, "À venir", 6)
+
         ttk.Label(self, textvariable=self.status_var, bootstyle="secondary", anchor=W).pack(fill=X, padx=10, pady=(0, 10))
         self._update_buttons()
 
@@ -379,8 +392,9 @@ class PayCalendarTab(ttk.Frame):
             self.status_var.set(str(exc))
             return
         self.periods = rows
-        for item in self.tree.get_children():
-            self.tree.delete(item)
+        for tree in (self.past_tree, self.open_tree, self.upcoming_tree):
+            for item in tree.get_children():
+                tree.delete(item)
 
         past = []
         open_rows = []
@@ -395,21 +409,10 @@ class PayCalendarTab(ttk.Frame):
             else:
                 open_rows.append(row)
 
-        def _insert_group(label, group_rows):
-            if not group_rows:
-                return
-            group_id = f"group:{label}"
-            self.tree.insert(
-                "",
-                "end",
-                iid=group_id,
-                values=("", label, "", ""),
-                tags=("group",),
-            )
-            self.tree.item(group_id, open=True)
+        def _insert_rows(tree, group_rows):
             for row in group_rows:
-                self.tree.insert(
-                    group_id,
+                tree.insert(
+                    "",
                     "end",
                     iid=row["id"],
                     values=(
@@ -420,9 +423,9 @@ class PayCalendarTab(ttk.Frame):
                     ),
                 )
 
-        _insert_group("Passées", past)
-        _insert_group("Ouvertes", open_rows)
-        _insert_group("À venir", upcoming)
+        _insert_rows(self.past_tree, past)
+        _insert_rows(self.open_tree, open_rows)
+        _insert_rows(self.upcoming_tree, upcoming)
         self.status_var.set(f"{len(rows)} périodes chargées")
         self._update_buttons()
 
@@ -435,21 +438,24 @@ class PayCalendarTab(ttk.Frame):
         self.refresh_periods()
 
     def _selected_period(self):
-        selection = self.tree.selection()
+        selection = None
+        for tree in (self.past_tree, self.open_tree, self.upcoming_tree):
+            sel = tree.selection()
+            if sel:
+                selection = sel
+                break
         if not selection:
             return None
         period_id = selection[0]
-        if str(period_id).startswith("group:"):
-            return None
         for row in self.periods:
             if row["id"] == period_id:
                 return row
         return None
 
-    def _on_select(self):
-        selection = self.tree.selection()
-        if selection and str(selection[0]).startswith("group:"):
-            self.tree.selection_remove(selection[0])
+    def _on_select(self, active_tree):
+        for tree in (self.past_tree, self.open_tree, self.upcoming_tree):
+            if tree is not active_tree:
+                tree.selection_remove(tree.selection())
         self._update_buttons()
 
     def _update_buttons(self):
@@ -459,6 +465,7 @@ class PayCalendarTab(ttk.Frame):
             self.lock_btn.configure(state=DISABLED, text="Verrouiller")
             self.pay_btn.configure(state=DISABLED)
             self.override_btn.configure(state=DISABLED)
+            self.revert_btn.configure(state=DISABLED)
             return
         status = period.get("status")
         if status == "LOCKED":
@@ -468,9 +475,11 @@ class PayCalendarTab(ttk.Frame):
         if status == "PAYED":
             self.lock_btn.configure(state=DISABLED)
             self.pay_btn.configure(state=DISABLED)
+            self.revert_btn.configure(state=NORMAL)
         else:
             self.lock_btn.configure(state=NORMAL)
             self.pay_btn.configure(state=NORMAL)
+            self.revert_btn.configure(state=DISABLED)
         self.override_btn.configure(state=NORMAL)
 
     def lock_selected(self):
@@ -503,6 +512,23 @@ class PayCalendarTab(ttk.Frame):
                 return
         try:
             self.app.pay_calendar_service.mark_payed(period["id"])
+        except PayCalendarError as exc:
+            messagebox.showerror("Période", str(exc), parent=self)
+            return
+        self.app.refresh_payroll_context()
+        self.refresh_periods()
+
+    def revert_payed_selected(self):
+        period = self._selected_period()
+        if not period:
+            return
+        if period.get("status") != "PAYED":
+            return
+        if hasattr(self.app, "require_manager_password"):
+            if not self.app.require_manager_password("rétablir une période à verrouillée"):
+                return
+        try:
+            self.app.pay_calendar_service.revert_payed(period["id"])
         except PayCalendarError as exc:
             messagebox.showerror("Période", str(exc), parent=self)
             return

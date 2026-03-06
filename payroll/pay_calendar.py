@@ -369,6 +369,9 @@ class PayCalendarService:
     def mark_payed(self, period_id: str) -> Dict:
         return self._transition_period(period_id, "LOCKED", "PAYED", set_payed=True)
 
+    def revert_payed(self, period_id: str) -> Dict:
+        return self._transition_period(period_id, "PAYED", "LOCKED", clear_payed=True)
+
     def _transition_period(
         self,
         period_id: str,
@@ -378,6 +381,7 @@ class PayCalendarService:
         set_locked: bool = False,
         set_payed: bool = False,
         clear_locked: bool = False,
+        clear_payed: bool = False,
     ) -> Dict:
         with db_session() as conn:
             row = conn.execute(
@@ -403,6 +407,8 @@ class PayCalendarService:
             if set_payed:
                 updates.append("payed_at_utc = ?")
                 params.append(now)
+            if clear_payed:
+                updates.append("payed_at_utc = NULL")
             params.append(period_id)
             conn.execute(
                 f"UPDATE pay_periods SET {', '.join(updates)} WHERE id = ?",
