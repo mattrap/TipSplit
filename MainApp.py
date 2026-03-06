@@ -12,7 +12,12 @@ from Distribution import DistributionTab
 from AnalyseTab import AnalyseTab
 from tkinter import messagebox
 from Pay import PayTab
-from AppConfig import ensure_pdf_dir_selected, get_user_data_dir
+from AppConfig import (
+    ensure_pdf_dir_selected,
+    get_user_data_dir,
+    get_payroll_setup_pending,
+    set_payroll_setup_pending,
+)
 from updater import maybe_auto_check
 from app_version import APP_NAME, APP_VERSION
 from icon_helper import set_app_icon
@@ -136,6 +141,8 @@ def _bootstrap_database(root=None):
         init_db()
         try:
             _, created = ensure_default_schedule()
+            if created:
+                set_payroll_setup_pending(True)
         except Exception:
             logging.exception("Impossible de préparer l’horaire de paie par défaut")
             created = False
@@ -187,7 +194,8 @@ class TipSplitApp:
         self.pay_calendar_service = PayCalendarService()
         self.payroll_context = PayrollContext(self.pay_calendar_service)
         self._initialize_payroll_context()
-        self._open_pay_settings_on_start = bool(open_pay_settings)
+        self._payroll_setup_pending = get_payroll_setup_pending()
+        self._open_pay_settings_on_start = bool(open_pay_settings) and not self._payroll_setup_pending
 
         self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(fill=BOTH, expand=True)
@@ -198,6 +206,7 @@ class TipSplitApp:
         
 
         create_menu_bar(self.root, self)
+        self._apply_payroll_setup_gate()
         if self._open_pay_settings_on_start:
             # Allow the main window to render first.
             self.root.after(200, lambda: self._open_pay_settings_startup())
@@ -273,7 +282,9 @@ class TipSplitApp:
             payroll_bucket["error"] = str(exc)
             # Attempt to create a default schedule if none exists.
             try:
-                ensure_default_schedule()
+                _, created = ensure_default_schedule()
+                if created:
+                    set_payroll_setup_pending(True)
                 schedule = self.payroll_context.refresh_schedule()
                 self.payroll_context.ensure_window()
                 payroll_bucket["context"] = self.payroll_context
@@ -384,6 +395,8 @@ class TipSplitApp:
         self.analyse_tab = AnalyseTab(self.analyse_frame, shared_data=self.shared_data)
 
     def show_analyse_tab(self):
+        if not self.ensure_payroll_setup_done():
+            return
         if not hasattr(self, "analyse_tab"):
             self.create_analyse_tab()
         elif str(self.analyse_frame) not in self.notebook.tabs():
@@ -481,16 +494,22 @@ class TipSplitApp:
         return result["value"]
 
     def authenticate_and_show_master(self):
+        if not self.ensure_payroll_setup_done():
+            return
         if not self.require_manager_password("accéder à la feuille maître"):
             return
         self.show_master_tab()
 
     def show_master_tab(self):
+        if not self.ensure_payroll_setup_done():
+            return
         if str(self.master_frame) not in self.notebook.tabs():
             self.notebook.add(self.master_frame, text="Master Sheet")
         self.notebook.select(self.master_frame)
 
     def show_json_viewer_tab(self):
+        if not self.ensure_payroll_setup_done():
+            return
         if not hasattr(self, "json_viewer_tab"):
             from JsonViewerTab import JsonViewerTab
             self.json_viewer_frame = ttk.Frame(self.notebook)
@@ -501,6 +520,8 @@ class TipSplitApp:
         self.notebook.select(self.json_viewer_frame)
 
     def show_pay_tab(self):
+        if not self.ensure_payroll_setup_done():
+            return
         if not hasattr(self, "pay_tab"):
             self.pay_frame = ttk.Frame(self.notebook)
             self.pay_tab = PayTab(self.pay_frame, shared_data=self.shared_data)
@@ -521,6 +542,42 @@ class TipSplitApp:
         if hasattr(self, "pay_calendar_tab"):
             self.pay_calendar_tab.refresh_periods()
         self.notebook.select(self.pay_calendar_frame)
+
+    def ensure_payroll_setup_done(self) -> bool:
+        if not get_payroll_setup_pending():
+            return True
+        messagebox.showinfo(
+            "Configuration requise",
+            "Veuillez configurer le calendrier de paie avant d'utiliser cette fonction.",
+            parent=self.root,
+        )
+        self.show_pay_calendar_tab()
+        return False
+
+    def _set_tab_state(self, frame, state: str):
+        if not frame:
+            return
+        if str(frame) in self.notebook.tabs():
+            self.notebook.tab(frame, state=state)
+
+    def _apply_payroll_setup_gate(self):
+        pending = get_payroll_setup_pending()
+        self._payroll_setup_pending = pending
+        if pending:
+            self.show_pay_calendar_tab()
+        targets = [
+            getattr(self, "timesheet_frame", None),
+            getattr(self, "distribution_frame", None),
+            getattr(self, "master_frame", None),
+            getattr(self, "pay_frame", None),
+            getattr(self, "analyse_frame", None),
+            getattr(self, "json_viewer_frame", None),
+        ]
+        for frame in targets:
+            self._set_tab_state(frame, "disabled" if pending else "normal")
+
+    def on_payroll_setup_completed(self):
+        self._apply_payroll_setup_gate()
 
     def _open_pay_settings_startup(self):
         try:
