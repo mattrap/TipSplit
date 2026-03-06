@@ -345,6 +345,7 @@ class PayCalendarTab(ttk.Frame):
         self.setup_frame = None
         self.setup_anchor_var = StringVar()
         self._in_select = False
+        self._active_tree = None
         self._refreshing = False
         self._build_ui()
         if get_payroll_setup_pending():
@@ -574,11 +575,15 @@ class PayCalendarTab(ttk.Frame):
 
     def _selected_period(self):
         selection = None
-        for tree in (self.past_tree, self.open_tree, self.upcoming_tree):
-            sel = tree.selection()
-            if sel:
-                selection = sel
-                break
+        if self._active_tree is not None:
+            selection = self._active_tree.selection()
+        if not selection:
+            for tree in (self.past_tree, self.open_tree, self.upcoming_tree):
+                sel = tree.selection()
+                if sel:
+                    selection = sel
+                    self._active_tree = tree
+                    break
         if not selection:
             return None
         period_id = selection[0]
@@ -588,13 +593,11 @@ class PayCalendarTab(ttk.Frame):
         return None
 
     def _on_select(self, active_tree):
+        self._active_tree = active_tree
         if self._in_select:
             return
         self._in_select = True
         try:
-            for tree in (self.past_tree, self.open_tree, self.upcoming_tree):
-                if tree is not active_tree:
-                    tree.selection_remove(tree.selection())
             self._update_buttons()
         finally:
             self._in_select = False
