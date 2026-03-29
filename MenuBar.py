@@ -338,6 +338,15 @@ def create_menu_bar(root, app):
     help_button["menu"] = help_menu
     help_button.pack(side=RIGHT, padx=5)
 
+    close_tab_button = ttk.Button(
+        menu_bar,
+        text="Fermer l'onglet",
+        command=app.close_current_tab,
+        bootstyle=SECONDARY,
+    )
+    close_tab_button.pack(side=RIGHT, padx=5)
+    app.close_tab_button = close_tab_button
+
     # Clock (right-aligned; stays at the far right)
     clock_label = ttk.Label(menu_bar, font=("Helvetica", 10))
     clock_label.pack(side=RIGHT, padx=10)
@@ -349,4 +358,6 @@ def create_menu_bar(root, app):
         clock_label.after(1000, update_clock)
 
     update_clock()
+    if hasattr(app, "_update_close_tab_button"):
+        app._update_close_tab_button()
     return clock_label

@@ -199,9 +199,20 @@ class TipSplitApp:
 
         self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(fill=BOTH, expand=True)
+        self._tab_metadata = {}
+        self._closeable_tabs = set()
+        self.notebook.bind("<<NotebookTabChanged>>", self._on_notebook_tab_changed, add="+")
 
         self.master_frame = None
         self.master_tab = None
+        self.json_viewer_frame = None
+        self.json_viewer_tab = None
+        self.pay_frame = None
+        self.pay_tab = None
+        self.pay_calendar_frame = None
+        self.pay_calendar_tab = None
+        self.analyse_frame = None
+        self.analyse_tab = None
         self.create_timesheet_tab()
         self.create_distribution_tab()
         
@@ -355,6 +366,98 @@ class TipSplitApp:
             print(f"⚠️ Warning: Error setting shared data key '{key}': {e}")
             return False
 
+    def _ensure_tab_management_state(self):
+        if not hasattr(self, "_tab_metadata"):
+            self._tab_metadata = {}
+        if not hasattr(self, "_closeable_tabs"):
+            self._closeable_tabs = set()
+
+    def _tab_key(self, frame_or_tab_id):
+        if frame_or_tab_id is None:
+            return None
+        return str(frame_or_tab_id)
+
+    def _get_tab_metadata(self, frame_or_tab_id):
+        self._ensure_tab_management_state()
+        key = self._tab_key(frame_or_tab_id)
+        if key is None:
+            return None
+        return self._tab_metadata.get(key)
+
+    def _frame_from_tab_id(self, tab_id):
+        metadata = self._get_tab_metadata(tab_id)
+        if not metadata:
+            return None
+        return metadata["frame"]
+
+    def is_tab_closeable(self, frame_or_tab_id) -> bool:
+        self._ensure_tab_management_state()
+        key = self._tab_key(frame_or_tab_id)
+        return bool(key and key in self._closeable_tabs)
+
+    def _register_tab(self, frame, text: str, closeable: bool = False, hidden: bool = False):
+        self._ensure_tab_management_state()
+        key = self._tab_key(frame)
+        self._tab_metadata[key] = {
+            "frame": frame,
+            "text": text,
+            "closeable": bool(closeable),
+        }
+        if closeable:
+            self._closeable_tabs.add(key)
+        else:
+            self._closeable_tabs.discard(key)
+
+        self._show_registered_tab(frame, select=False)
+        if hidden:
+            self.notebook.hide(frame)
+
+    def _show_registered_tab(self, frame, select: bool = True):
+        metadata = self._get_tab_metadata(frame)
+        if not metadata:
+            raise KeyError(f"Tab not registered: {frame}")
+
+        options = {"text": metadata["text"]}
+        if self._tab_key(frame) in self.notebook.tabs():
+            self.notebook.tab(frame, **options)
+        else:
+            self.notebook.add(frame, **options)
+
+        if select:
+            self.notebook.select(frame)
+        self._update_close_tab_button()
+        return frame
+
+    def close_current_tab(self) -> bool:
+        return self.close_tab()
+
+    def close_tab(self, frame=None) -> bool:
+        target = frame if frame is not None else self.notebook.select()
+        metadata = self._get_tab_metadata(target)
+        if not metadata or not metadata["closeable"]:
+            return False
+
+        frame = metadata["frame"]
+        if self._tab_key(frame) not in self.notebook.tabs():
+            return False
+
+        self.notebook.hide(frame)
+        self._update_close_tab_button()
+        return True
+
+    def _update_close_tab_button(self):
+        button = getattr(self, "close_tab_button", None)
+        if button is None:
+            return
+        try:
+            selected = self.notebook.select()
+            button.configure(state="normal" if self.is_tab_closeable(selected) else "disabled")
+        except Exception:
+            pass
+
+    def _on_notebook_tab_changed(self, _event=None):
+        self._update_close_tab_button()
+
     def create_master_tab(self):
         if self.master_frame is None:
             self.master_frame = ttk.Frame(self.notebook)
@@ -366,47 +469,70 @@ class TipSplitApp:
                 shared_data=self.shared_data
             )
 
-        if str(self.master_frame) not in self.notebook.tabs():
-            self.notebook.add(self.master_frame, text="Master Sheet")
+        self._register_tab(self.master_frame, text="Master Sheet", closeable=True, hidden=True)
 
     def create_timesheet_tab(self):
         self.timesheet_frame = ttk.Frame(self.notebook)
-        self.notebook.add(self.timesheet_frame, text="Time Sheet")
-
         self.timesheet_tab = TimeSheet(
             self.timesheet_frame,
             shared_data=self.shared_data,
             reload_distribution_data=self.reload_distribution_tab
         )
+        self._register_tab(self.timesheet_frame, text="Time Sheet", closeable=False)
 
     def create_distribution_tab(self):
         self.distribution_frame = ttk.Frame(self.notebook)
-        self.notebook.add(self.distribution_frame, text="Distribution")
-
         self.distribution_tab = DistributionTab(
             root=self.distribution_frame,
             shared_data=self.shared_data
         )
         self.shared_data["distribution_tab"] = self.distribution_tab
+        self._register_tab(self.distribution_frame, text="Distribution", closeable=False)
+
+    def create_json_viewer_tab(self):
+        if self.json_viewer_frame is None:
+            self.json_viewer_frame = ttk.Frame(self.notebook)
+        if self.json_viewer_tab is None:
+            from JsonViewerTab import JsonViewerTab
+
+            self.json_viewer_tab = JsonViewerTab(self.json_viewer_frame, shared_data=self.shared_data)
+        self._register_tab(
+            self.json_viewer_frame,
+            text="Confirmer les distribution",
+            closeable=True,
+            hidden=True,
+        )
 
     def create_pay_tab(self):
-        self.pay_frame = ttk.Frame(self.notebook)
-        self.notebook.add(self.pay_frame, text="Pay")
-        self.pay_tab = PayTab(self.pay_frame, shared_data=self.shared_data)
+        if self.pay_frame is None:
+            self.pay_frame = ttk.Frame(self.notebook)
+        if self.pay_tab is None:
+            self.pay_tab = PayTab(self.pay_frame, shared_data=self.shared_data)
+        self._register_tab(self.pay_frame, text="Pay", closeable=True, hidden=True)
+
+    def create_pay_calendar_tab(self):
+        if self.pay_calendar_frame is None:
+            self.pay_calendar_frame = ttk.Frame(self.notebook)
+        if self.pay_calendar_tab is None:
+            from payroll.ui import PayCalendarTab
+
+            self.pay_calendar_tab = PayCalendarTab(self.pay_calendar_frame, app=self)
+            self.pay_calendar_tab.pack(fill=BOTH, expand=True)
+        self._register_tab(self.pay_calendar_frame, text="Calendrier de paie", closeable=True, hidden=True)
 
     def create_analyse_tab(self):
-        self.analyse_frame = ttk.Frame(self.notebook)
-        self.notebook.add(self.analyse_frame, text="Analyse")
-        self.analyse_tab = AnalyseTab(self.analyse_frame, shared_data=self.shared_data)
+        if self.analyse_frame is None:
+            self.analyse_frame = ttk.Frame(self.notebook)
+        if self.analyse_tab is None:
+            self.analyse_tab = AnalyseTab(self.analyse_frame, shared_data=self.shared_data)
+        self._register_tab(self.analyse_frame, text="Analyse", closeable=True, hidden=True)
 
     def show_analyse_tab(self):
         if not self.ensure_payroll_setup_done():
             return
-        if not hasattr(self, "analyse_tab"):
+        if self.analyse_tab is None:
             self.create_analyse_tab()
-        elif str(self.analyse_frame) not in self.notebook.tabs():
-            self.notebook.add(self.analyse_frame, text="Analyse")
-        self.notebook.select(self.analyse_frame)
+        self._show_registered_tab(self.analyse_frame)
 
     def require_manager_password(self, purpose: str = "cette action") -> bool:
         if not getattr(self, "controller", None):
@@ -510,45 +636,28 @@ class TipSplitApp:
             return
         if self.master_frame is None or self.master_tab is None:
             self.create_master_tab()
-        if str(self.master_frame) not in self.notebook.tabs():
-            self.notebook.add(self.master_frame, text="Master Sheet")
-        self.notebook.select(self.master_frame)
+        self._show_registered_tab(self.master_frame)
 
     def show_json_viewer_tab(self):
         if not self.ensure_payroll_setup_done():
             return
-        if not hasattr(self, "json_viewer_tab"):
-            from JsonViewerTab import JsonViewerTab
-            self.json_viewer_frame = ttk.Frame(self.notebook)
-            self.json_viewer_tab = JsonViewerTab(self.json_viewer_frame, shared_data=self.shared_data)
-            self.notebook.add(self.json_viewer_frame, text="Confirmer les distribution")
-        elif str(self.json_viewer_frame) not in self.notebook.tabs():
-            self.notebook.add(self.json_viewer_frame, text="Confrimer les distribution")
-        self.notebook.select(self.json_viewer_frame)
+        if self.json_viewer_tab is None or self.json_viewer_frame is None:
+            self.create_json_viewer_tab()
+        self._show_registered_tab(self.json_viewer_frame)
 
     def show_pay_tab(self):
         if not self.ensure_payroll_setup_done():
             return
-        if not hasattr(self, "pay_tab"):
-            self.pay_frame = ttk.Frame(self.notebook)
-            self.pay_tab = PayTab(self.pay_frame, shared_data=self.shared_data)
-            self.notebook.add(self.pay_frame, text="Pay")
-        elif str(self.pay_frame) not in self.notebook.tabs():
-            self.notebook.add(self.pay_frame, text="Pay")
-        self.notebook.select(self.pay_frame)
+        if self.pay_tab is None or self.pay_frame is None:
+            self.create_pay_tab()
+        self._show_registered_tab(self.pay_frame)
 
     def show_pay_calendar_tab(self):
-        from payroll.ui import PayCalendarTab
-        if not hasattr(self, "pay_calendar_tab"):
-            self.pay_calendar_frame = ttk.Frame(self.notebook)
-            self.pay_calendar_tab = PayCalendarTab(self.pay_calendar_frame, app=self)
-            self.pay_calendar_tab.pack(fill=BOTH, expand=True)
-            self.notebook.add(self.pay_calendar_frame, text="Calendrier de paie")
-        elif str(self.pay_calendar_frame) not in self.notebook.tabs():
-            self.notebook.add(self.pay_calendar_frame, text="Calendrier de paie")
-        if hasattr(self, "pay_calendar_tab"):
+        if self.pay_calendar_tab is None or self.pay_calendar_frame is None:
+            self.create_pay_calendar_tab()
+        self._show_registered_tab(self.pay_calendar_frame)
+        if self.pay_calendar_tab is not None:
             self.pay_calendar_tab.refresh_periods()
-        self.notebook.select(self.pay_calendar_frame)
 
     def ensure_payroll_setup_done(self) -> bool:
         if not get_payroll_setup_pending():
