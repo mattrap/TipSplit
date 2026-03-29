@@ -200,7 +200,8 @@ class TipSplitApp:
         self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(fill=BOTH, expand=True)
 
-        self.create_master_tab()
+        self.master_frame = None
+        self.master_tab = None
         self.create_timesheet_tab()
         self.create_distribution_tab()
         
@@ -355,14 +356,18 @@ class TipSplitApp:
             return False
 
     def create_master_tab(self):
-        self.master_frame = ttk.Frame(self.notebook)
-        self.notebook.add(self.master_frame, text="Master Sheet")
-        self.notebook.hide(self.master_frame)  # Hide the tab on startup
-        self.master_tab = MasterSheet(
-            self.master_frame,
-            on_save_callback=self.reload_timesheet_data,
-            shared_data=self.shared_data
-        )
+        if self.master_frame is None:
+            self.master_frame = ttk.Frame(self.notebook)
+
+        if self.master_tab is None:
+            self.master_tab = MasterSheet(
+                self.master_frame,
+                on_save_callback=self.reload_timesheet_data,
+                shared_data=self.shared_data
+            )
+
+        if str(self.master_frame) not in self.notebook.tabs():
+            self.notebook.add(self.master_frame, text="Master Sheet")
 
     def create_timesheet_tab(self):
         self.timesheet_frame = ttk.Frame(self.notebook)
@@ -503,6 +508,8 @@ class TipSplitApp:
     def show_master_tab(self):
         if not self.ensure_payroll_setup_done():
             return
+        if self.master_frame is None or self.master_tab is None:
+            self.create_master_tab()
         if str(self.master_frame) not in self.notebook.tabs():
             self.notebook.add(self.master_frame, text="Master Sheet")
         self.notebook.select(self.master_frame)
