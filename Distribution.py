@@ -199,6 +199,31 @@ class DistributionTab:
         except Exception:
             pass
 
+    def _parse_float_input(self, value):
+        try:
+            return float(str(value).strip().replace(",", "."))
+        except ValueError:
+            return 0.0
+
+    def _get_tips_due_values(self):
+        raw_value = self._parse_float_input(self.declaration_fields["Tips due"].get())
+        if raw_value < 0:
+            computed_value = abs(raw_value)
+        elif raw_value > 0:
+            computed_value = -raw_value
+        else:
+            computed_value = 0.0
+        return raw_value, computed_value
+
+    def _format_tips_due_amount(self, value):
+        amount = abs(float(value))
+        text = f"{amount:.2f}".rstrip("0").rstrip(".")
+        return text.replace(".", ",")
+
+    def _format_amount_for_prompt(self, value):
+        text = f"{float(value):.2f}".rstrip("0").rstrip(".")
+        return text.replace(".", ",")
+
     def create_summary_panels(self, parent):
         self.create_bussboy_summary_panel(parent)
         self.create_service_summary_panel(parent)
@@ -447,30 +472,18 @@ class DistributionTab:
             self.show_declaration_view()
 
     def get_inputs(self):
-        def parse_float(value):
-            try:
-                return float(value.strip().replace(",", "."))
-            except ValueError:
-                return 0.0
-
-        ventes_net = parse_float(self.fields["Ventes Nettes"].get())
-        depot_net = parse_float(self.fields["Dépot Net"].get())
-        frais_admin = parse_float(self.fields["Frais Admin"].get())
-        cash = parse_float(self.fields["Cash"].get())
+        ventes_net = self._parse_float_input(self.fields["Ventes Nettes"].get())
+        depot_net = self._parse_float_input(self.fields["Dépot Net"].get())
+        frais_admin = self._parse_float_input(self.fields["Frais Admin"].get())
+        cash = self._parse_float_input(self.fields["Cash"].get())
 
         return ventes_net, depot_net, frais_admin, cash
 
     def get_declaration_inputs(self):
-        def parse_float(value):
-            try:
-                return float(value.strip().replace(",", "."))
-            except ValueError:
-                return 0.0
-
-        ventes_totales = parse_float(self.declaration_fields["Ventes Totales"].get())
-        clients = parse_float(self.declaration_fields["Clients"].get())
-        tips_due = parse_float(self.declaration_fields["Tips due"].get())
-        ventes_nourriture = parse_float(self.declaration_fields["Ventes Nourriture"].get())
+        ventes_totales = self._parse_float_input(self.declaration_fields["Ventes Totales"].get())
+        clients = self._parse_float_input(self.declaration_fields["Clients"].get())
+        _, tips_due = self._get_tips_due_values()
+        ventes_nourriture = self._parse_float_input(self.declaration_fields["Ventes Nourriture"].get())
         return ventes_totales, clients, tips_due, ventes_nourriture
 
     def inputs_valid(self):
@@ -497,6 +510,23 @@ class DistributionTab:
         if not self.get_active_pay_period():
             messagebox.showerror("Période manquante", "Impossible de déterminer la période de paye.")
             return
+        _ventes_net, depot_net, _frais_admin, cash = self.get_inputs()
+        if depot_net > 0 and cash <= depot_net:
+            cash_amount = self._format_amount_for_prompt(cash)
+            depot_amount = self._format_amount_for_prompt(depot_net)
+            if not messagebox.askyesno(
+                "Confirmation",
+                f"Vous ne pouvez pas avoir seulement {cash_amount}$ cash avec un dépot positif de {depot_amount}$",
+            ):
+                return
+        raw_tips_due, _ = self._get_tips_due_values()
+        if raw_tips_due > 0:
+            amount = self._format_tips_due_amount(raw_tips_due)
+            if not messagebox.askyesno(
+                "Confirmation",
+                f"Êtes vous sûrs que la valeur 'Tips Due' à entrer est '{amount}' et non '-{amount}'",
+            ):
+                return
         if messagebox.askyesno("Confirmation", "Êtes-vous sûr que la distribution est complète ?"):
             export_distribution_from_tab(self)
 
